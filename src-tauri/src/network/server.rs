@@ -17,6 +17,7 @@ pub struct MasterServer {
     port: u16,
     shutdown: Arc<AtomicBool>,
     tasks: Arc<RwLock<Vec<JoinHandle<()>>>>,
+    initial_state_callback: Arc<RwLock<Option<Box<dyn Fn() + Send + Sync>>>>,
 }
 
 impl MasterServer {
@@ -26,7 +27,15 @@ impl MasterServer {
             port,
             shutdown: Arc::new(AtomicBool::new(false)),
             tasks: Arc::new(RwLock::new(Vec::new())),
+            initial_state_callback: Arc::new(RwLock::new(None)),
         }
+    }
+
+    pub async fn set_initial_state_callback<F>(&self, callback: F)
+    where
+        F: Fn() + Send + Sync + 'static,
+    {
+        *self.initial_state_callback.write().await = Some(Box::new(callback));
     }
     
     pub async fn stop(&self) {

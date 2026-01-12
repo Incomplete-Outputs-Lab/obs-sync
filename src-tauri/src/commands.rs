@@ -118,6 +118,19 @@ pub async fn start_master_server(
         .map_err(|e| format!("Failed to start master server: {}", e))?;
     *state.master_server.write().await = Some(master_server);
 
+    // Send initial state to any connecting slaves
+    // Note: In a real implementation, you'd want to detect new client connections
+    // and send the initial state only to them. For now, we send it periodically.
+    let master_sync_for_state = master_sync.clone();
+    tokio::spawn(async move {
+        // Wait a bit for slaves to connect
+        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+        // Send initial state
+        if let Err(e) = master_sync_for_state.send_initial_state().await {
+            eprintln!("Failed to send initial state: {}", e);
+        }
+    });
+
     // Create OBS event handler
     let (event_handler, event_rx) = OBSEventHandler::new();
     let event_handler = Arc::new(event_handler);
@@ -190,7 +203,14 @@ pub async fn connect_to_master(
     // Start processing sync messages
     tokio::spawn(async move {
         let mut rx = sync_rx;
+        let mut first_message = true;
         while let Some(message) = rx.recv().await {
+            // First message should be StateSync for initial synchronization
+            if first_message {
+                println!("Waiting for initial state from master...");
+                first_message = false;
+            }
+            
             if let Err(e) = slave_sync.apply_sync_message(message).await {
                 eprintln!("Failed to apply sync message: {}", e);
             }
@@ -198,6 +218,7 @@ pub async fn connect_to_master(
     });
 
     println!("Connected to master at {}:{}", config.host, config.port);
+    println!("Note: Initial state will be synchronized from master...");
     Ok(())
 }
 

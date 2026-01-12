@@ -10,6 +10,7 @@ pub enum SyncMessageType {
     ImageUpdate,
     Heartbeat,
     StateSync,
+    StateSyncRequest,  // Slave requests initial state from Master
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -46,6 +47,14 @@ impl SyncMessage {
             Value::Object(serde_json::Map::new()),
         )
     }
+
+    pub fn state_sync_request() -> Self {
+        Self::new(
+            SyncMessageType::StateSyncRequest,
+            SyncTargetType::Program,
+            Value::Object(serde_json::Map::new()),
+        )
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -76,8 +85,8 @@ pub struct ImageUpdatePayload {
     pub scene_name: String,
     pub source_name: String,
     pub file: String,
-    #[serde(with = "serde_bytes")]
-    pub image_data: Vec<u8>,  // 画像のバイナリデータ
+    /// Base64 encoded image data
+    pub image_data: Option<String>,
     pub width: Option<f64>,
     pub height: Option<f64>,
 }
@@ -86,46 +95,19 @@ pub struct ImageUpdatePayload {
 pub struct StateSyncPayload {
     pub current_program_scene: String,
     pub current_preview_scene: Option<String>,
-    pub scenes: Vec<SceneInfo>,
+    pub scenes: Vec<SceneData>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SceneInfo {
-    pub scene_name: String,
-    pub items: Vec<SceneItemInfo>,
+pub struct SceneData {
+    pub name: String,
+    pub items: Vec<SceneItemData>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SceneItemInfo {
-    pub item_id: i64,
+pub struct SceneItemData {
     pub source_name: String,
     pub source_type: String,
-    pub transform: TransformData,
-    pub image_path: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(with = "option_serde_bytes")]
-    pub image_data: Option<Vec<u8>>,  // 画像ソースの場合のみ
-}
-
-// serde_bytesのOption対応
-mod option_serde_bytes {
-    use serde::{Deserialize, Deserializer, Serializer};
-
-    pub fn serialize<S>(value: &Option<Vec<u8>>, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        match value {
-            Some(bytes) => serde_bytes::serialize(bytes, serializer),
-            None => serializer.serialize_none(),
-        }
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<Vec<u8>>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        Option::<serde_bytes::ByteBuf>::deserialize(deserializer)
-            .map(|opt| opt.map(|buf| buf.into_vec()))
-    }
+    /// Base64 encoded image data for image sources
+    pub image_data: Option<String>,
 }

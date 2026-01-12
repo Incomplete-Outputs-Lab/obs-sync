@@ -1,10 +1,8 @@
-use super::protocol::{SyncMessage, SyncMessageType, StateSyncPayload, ImageUpdatePayload};
+use super::protocol::{SyncMessage, SyncMessageType};
 use crate::obs::{commands::OBSCommands, OBSClient};
 use anyhow::{Context, Result};
 use std::sync::Arc;
-use std::path::Path;
 use tokio::sync::mpsc;
-use tokio::fs;
 
 #[derive(Debug, Clone)]
 pub struct DesyncAlert {
@@ -79,38 +77,37 @@ impl SlaveSync {
                 }
             }
             SyncMessageType::ImageUpdate => {
-                let payload: ImageUpdatePayload = serde_json::from_value(message.payload)
-                    .context("Invalid ImageUpdatePayload")?;
+                let input_name = message.payload["input_name"]
+                    .as_str()
+                    .context("Invalid input_name")?;
 
-                let scene_name = payload.scene_name.clone();
-                let source_name = payload.source_name.clone();
-
-                // Handle image update with binary data
-                if let Err(e) = self.handle_image_update_with_data(&client, payload).await {
+                // Handle image update
+                if let Err(e) = self.handle_image_update(&client, input_name).await {
                     self.send_alert(
-                        scene_name,
-                        source_name,
+                        String::new(),
+                        input_name.to_string(),
                         format!("Failed to update image: {}", e),
                         AlertSeverity::Warning,
                     )?;
                 }
             }
-            SyncMessageType::StateSync => {
-                let payload: StateSyncPayload = serde_json::from_value(message.payload)
-                    .context("Invalid StateSyncPayload")?;
-
-                // Apply initial state
-                if let Err(e) = self.apply_initial_state(&client, payload).await {
-                    self.send_alert(
-                        String::new(),
-                        String::new(),
-                        format!("Failed to apply initial state: {}", e),
-                        AlertSeverity::Error,
-                    )?;
-                }
-            }
             SyncMessageType::Heartbeat => {
                 // Just acknowledge heartbeat
+            }
+            SyncMessageType::StateSync => {
+                // Apply initial state from master
+                if let Some(scene_name) = message.payload["current_program_scene"].as_str() {
+                    if let Err(e) = crate::obs::commands::OBSCommands::set_current_program_scene(&client, scene_name).await {
+                        self.send_alert(
+                            scene_name.to_string(),
+                            String::new(),
+                            format!("Failed to sync initial scene: {}", e),
+                            AlertSeverity::Warning,
+                        )?;
+                    } else {
+                        println!("Applied initial state: scene = {}", scene_name);
+                    }
+                }
             }
             _ => {}
         }
@@ -130,94 +127,6 @@ impl SlaveSync {
 
     async fn handle_image_update(&self, _client: &obws::Client, _input_name: &str) -> Result<()> {
         // Image update logic would go here
-        Ok(())
-    }
-    
-    /// 画像更新（バイナリデータ付き）
-    async fn handle_image_update_with_data(
-        &self,
-        client: &obws::Client,
-        payload: ImageUpdatePayload,
-    ) -> Result<()> {
-        // 1. 一時ディレクトリに画像を保存
-        let temp_dir = std::env::temp_dir().join("obs-sync");
-        fs::create_dir_all(&temp_dir).await?;
-        
-        // 元のファイル名を取得
-        let file_name = Path::new(&payload.file)
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("synced_image.png");
-        
-        let temp_file = temp_dir.join(file_name);
-        
-        // 2. バイナリデータを書き込み
-        fs::write(&temp_file, &payload.image_data).await?;
-        
-        // 3. OBSの画像ソースを更新
-        let settings = serde_json::json!({
-            "file": temp_file.to_string_lossy().to_string(),
-        });
-        
-        OBSCommands::set_input_settings(client, &payload.source_name, &settings).await?;
-        
-        println!(
-            "Image synced: {} -> {}",
-            payload.source_name,
-            temp_file.display()
-        );
-        
-        Ok(())
-    }
-    
-    /// 初期状態を適用（再接続時の同期ズレ回避）
-    async fn apply_initial_state(
-        &self,
-        client: &obws::Client,
-        payload: StateSyncPayload,
-    ) -> Result<()> {
-        println!("Applying initial state from master...");
-        
-        // 1. プログラムシーンを設定
-        OBSCommands::set_current_program_scene(client, &payload.current_program_scene).await?;
-        
-        // 2. プレビューシーンを設定（存在する場合）
-        if let Some(preview_scene) = payload.current_preview_scene {
-            // Note: obwsライブラリでプレビューシーン設定が可能な場合
-            println!("Preview scene would be set to: {}", preview_scene);
-        }
-        
-        // 3. 各シーンのアイテムを同期
-        for scene in payload.scenes {
-            for item in scene.items {
-                // 画像ソースの場合、画像データを保存して設定
-                if let Some(image_data) = item.image_data {
-                    if let Some(image_path) = item.image_path {
-                        let temp_dir = std::env::temp_dir().join("obs-sync");
-                        fs::create_dir_all(&temp_dir).await?;
-                        
-                        let file_name = Path::new(&image_path)
-                            .file_name()
-                            .and_then(|n| n.to_str())
-                            .unwrap_or("synced_image.png");
-                        
-                        let temp_file = temp_dir.join(file_name);
-                        fs::write(&temp_file, &image_data).await?;
-                        
-                        let settings = serde_json::json!({
-                            "file": temp_file.to_string_lossy().to_string(),
-                        });
-                        
-                        OBSCommands::set_input_settings(client, &item.source_name, &settings).await?;
-                    }
-                }
-                
-                // トランスフォームを設定
-                // Note: 実際のAPIに合わせて実装が必要
-            }
-        }
-        
-        println!("Initial state applied successfully");
         Ok(())
     }
 
