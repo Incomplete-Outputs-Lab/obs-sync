@@ -3,6 +3,7 @@ use crate::obs::{commands::OBSCommands, OBSClient};
 use anyhow::{Context, Result};
 use std::sync::Arc;
 use tokio::sync::mpsc;
+use tokio::fs;
 
 #[derive(Debug, Clone)]
 pub struct DesyncAlert {
@@ -77,15 +78,25 @@ impl SlaveSync {
                 }
             }
             SyncMessageType::ImageUpdate => {
-                let input_name = message.payload["input_name"]
+                let source_name = message.payload["source_name"]
                     .as_str()
-                    .context("Invalid input_name")?;
+                    .context("Invalid source_name")?;
+                let file_path = message.payload["file"]
+                    .as_str()
+                    .unwrap_or("");
+                let image_data = message.payload["image_data"]
+                    .as_str();
 
                 // Handle image update
-                if let Err(e) = self.handle_image_update(&client, input_name).await {
+                if let Err(e) = self.handle_image_update(
+                    &client,
+                    source_name,
+                    file_path,
+                    image_data
+                ).await {
                     self.send_alert(
                         String::new(),
-                        input_name.to_string(),
+                        source_name.to_string(),
                         format!("Failed to update image: {}", e),
                         AlertSeverity::Warning,
                     )?;
@@ -125,9 +136,72 @@ impl SlaveSync {
         Ok(())
     }
 
-    async fn handle_image_update(&self, _client: &obws::Client, _input_name: &str) -> Result<()> {
-        // Image update logic would go here
-        Ok(())
+    async fn handle_image_update(
+        &self,
+        client: &obws::Client,
+        source_name: &str,
+        _original_file_path: &str,
+        image_data: Option<&str>,
+    ) -> Result<()> {
+        if let Some(encoded_data) = image_data {
+            println!("Received image data for {}, decoding...", source_name);
+            
+            // Decode base64 image data
+            let decoded_data = base64::Engine::decode(
+                &base64::engine::general_purpose::STANDARD,
+                encoded_data
+            ).context("Failed to decode image data")?;
+            
+            println!("Decoded {} bytes of image data", decoded_data.len());
+            
+            // Create temp directory for synced images
+            let temp_dir = std::env::temp_dir().join("obs-sync");
+            fs::create_dir_all(&temp_dir).await.context("Failed to create temp directory")?;
+            
+            // Generate unique filename
+            let file_extension = "png"; // Default to PNG, could be detected from data
+            let temp_file_path = temp_dir.join(format!("{}_{}.{}", 
+                source_name.replace("/", "_").replace("\\", "_"),
+                chrono::Utc::now().timestamp_millis(),
+                file_extension
+            ));
+            
+            println!("Saving image to: {:?}", temp_file_path);
+            
+            // Write decoded data to temp file
+            fs::write(&temp_file_path, &decoded_data)
+                .await
+                .context("Failed to write image file")?;
+            
+            // Update OBS input settings with new file path
+            let temp_file_str = temp_file_path.to_string_lossy().to_string();
+            let settings = serde_json::json!({
+                "file": temp_file_str
+            });
+            
+            println!("Applying image to OBS source: {}", source_name);
+            
+            // Apply settings to OBS
+            match client.inputs().set_settings(
+                obws::requests::inputs::SetSettings {
+                    input: source_name,
+                    settings: &settings,
+                    overlay: Some(true),
+                }
+            ).await {
+                Ok(_) => {
+                    println!("Successfully applied image to {}", source_name);
+                    Ok(())
+                }
+                Err(e) => {
+                    eprintln!("Failed to apply image to OBS: {}", e);
+                    Err(anyhow::anyhow!("Failed to apply image: {}", e))
+                }
+            }
+        } else {
+            println!("No image data provided for {}", source_name);
+            Ok(())
+        }
     }
 
     fn send_alert(
