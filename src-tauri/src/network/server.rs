@@ -3,16 +3,23 @@ use anyhow::{Context, Result};
 use futures::{SinkExt, StreamExt};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, RwLock};
+use tokio::task::JoinHandle;
 use tokio_tungstenite::{accept_async, tungstenite::Message, WebSocketStream};
 
 type ClientId = String;
 type ClientConnection = WebSocketStream<TcpStream>;
 
+type InitialStateCallback = Arc<dyn Fn(ClientId) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> + Send + Sync>;
+
 pub struct MasterServer {
     clients: Arc<RwLock<HashMap<ClientId, mpsc::UnboundedSender<Message>>>>,
     port: u16,
+    shutdown: Arc<AtomicBool>,
+    tasks: Arc<RwLock<Vec<JoinHandle<()>>>>,
+    initial_state_callback: Arc<RwLock<Option<InitialStateCallback>>>,
 }
 
 impl MasterServer {
@@ -20,7 +27,37 @@ impl MasterServer {
         Self {
             clients: Arc::new(RwLock::new(HashMap::new())),
             port,
+            shutdown: Arc::new(AtomicBool::new(false)),
+            tasks: Arc::new(RwLock::new(Vec::new())),
+            initial_state_callback: Arc::new(RwLock::new(None)),
         }
+    }
+
+    pub async fn set_initial_state_callback<F, Fut>(&self, callback: F)
+    where
+        F: Fn(ClientId) -> Fut + Send + Sync + 'static,
+        Fut: std::future::Future<Output = ()> + Send + 'static,
+    {
+        let wrapped = Arc::new(move |client_id: ClientId| {
+            Box::pin(callback(client_id)) as std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>
+        });
+        *self.initial_state_callback.write().await = Some(wrapped);
+    }
+    
+    pub async fn stop(&self) {
+        // Signal shutdown
+        self.shutdown.store(true, Ordering::SeqCst);
+        
+        // Abort all tasks
+        let tasks = self.tasks.write().await;
+        for task in tasks.iter() {
+            task.abort();
+        }
+        
+        // Clear clients
+        self.clients.write().await.clear();
+        
+        println!("Master server stopped");
     }
 
     pub async fn start(&self, mut sync_rx: mpsc::UnboundedReceiver<SyncMessage>) -> Result<()> {
@@ -32,10 +69,15 @@ impl MasterServer {
         println!("Master server listening on: {}", addr);
 
         let clients = self.clients.clone();
+        let shutdown = self.shutdown.clone();
 
         // Broadcast sync messages to all connected clients
-        tokio::spawn(async move {
+        let broadcast_task = tokio::spawn(async move {
             while let Some(message) = sync_rx.recv().await {
+                if shutdown.load(Ordering::SeqCst) {
+                    break;
+                }
+                
                 let json = match serde_json::to_string(&message) {
                     Ok(j) => j,
                     Err(e) => {
@@ -55,13 +97,33 @@ impl MasterServer {
 
         // Accept incoming connections
         let clients_for_accept = self.clients.clone();
-        tokio::spawn(async move {
-            while let Ok((stream, addr)) = listener.accept().await {
-                println!("New connection from: {}", addr);
-                let clients = clients_for_accept.clone();
-                tokio::spawn(handle_connection(stream, addr.to_string(), clients));
+        let shutdown_for_accept = self.shutdown.clone();
+        let callback_for_accept = self.initial_state_callback.clone();
+        let accept_task = tokio::spawn(async move {
+            loop {
+                if shutdown_for_accept.load(Ordering::SeqCst) {
+                    break;
+                }
+                
+                match listener.accept().await {
+                    Ok((stream, addr)) => {
+                        println!("New connection from: {}", addr);
+                        let clients = clients_for_accept.clone();
+                        let callback = callback_for_accept.clone();
+                        tokio::spawn(handle_connection(stream, addr.to_string(), clients, callback));
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to accept connection: {}", e);
+                        break;
+                    }
+                }
             }
         });
+
+        // Store task handles
+        let mut tasks = self.tasks.write().await;
+        tasks.push(broadcast_task);
+        tasks.push(accept_task);
 
         Ok(())
     }
@@ -75,6 +137,7 @@ async fn handle_connection(
     stream: TcpStream,
     client_id: ClientId,
     clients: Arc<RwLock<HashMap<ClientId, mpsc::UnboundedSender<Message>>>>,
+    callback: Arc<RwLock<Option<InitialStateCallback>>>,
 ) {
     let ws_stream = match accept_async(stream).await {
         Ok(ws) => ws,
@@ -89,6 +152,18 @@ async fn handle_connection(
 
     // Add client to the list
     clients.write().await.insert(client_id.clone(), tx);
+    
+    println!("Client connected: {}", client_id);
+
+    // Call initial state callback for new client
+    let callback_lock = callback.read().await;
+    if let Some(cb) = callback_lock.as_ref() {
+        let client_id_clone = client_id.clone();
+        let future = cb(client_id_clone);
+        drop(callback_lock); // Release lock before awaiting
+        tokio::spawn(future);
+        println!("Triggered initial state sync for client: {}", client_id);
+    }
 
     // Forward messages from tx to WebSocket
     let send_task = tokio::spawn(async move {

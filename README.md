@@ -73,8 +73,23 @@ npm install
 ## 開発
 
 ### 開発サーバーの起動
+
+#### 通常起動（1インスタンス）
 ```bash
 npm run tauri dev
+```
+
+#### マルチインスタンス起動（Master/Slaveテスト用）
+2つのターミナルを開いて、それぞれで以下を実行：
+
+**ターミナル1（Master用）:**
+```bash
+npm run tauri:master
+```
+
+**ターミナル2（Slave用）:**
+```bash
+npm run tauri:slave
 ```
 
 ### ビルド

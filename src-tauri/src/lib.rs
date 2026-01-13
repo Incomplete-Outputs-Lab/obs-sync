@@ -4,6 +4,7 @@ mod network;
 mod commands;
 
 use commands::AppState;
+use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -12,6 +13,15 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(app_state)
+        .setup(|app| {
+            let handle = app.handle().clone();
+            let state: tauri::State<AppState> = app.state();
+            let state_inner = state.inner().clone();
+            tauri::async_runtime::spawn(async move {
+                state_inner.set_app_handle(handle).await;
+            });
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             commands::greet,
             commands::connect_obs,

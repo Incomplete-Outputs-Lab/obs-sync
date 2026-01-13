@@ -5,6 +5,8 @@ import "./App.css";
 
 import { useOBSConnection } from "./hooks/useOBSConnection";
 import { useSyncState } from "./hooks/useSyncState";
+import { useNetworkStatus } from "./hooks/useNetworkStatus";
+import { useDesyncAlerts } from "./hooks/useDesyncAlerts";
 import { ConnectionStatus } from "./components/ConnectionStatus";
 import { MasterControl } from "./components/MasterControl";
 import { SlaveMonitor } from "./components/SlaveMonitor";
@@ -13,18 +15,19 @@ import { AlertPanel } from "./components/AlertPanel";
 import { OBSSourceList } from "./components/OBSSourceList";
 import { AppMode } from "./types/sync";
 import { OBSSource } from "./types/obs";
-import { DesyncAlert } from "./types/sync";
 
 function App() {
   const [appMode, setAppMode] = useState<AppMode | null>(null);
   const [obsHost, setObsHost] = useState("localhost");
   const [obsPort, setObsPort] = useState(4455);
   const [obsPassword, setObsPassword] = useState("");
-  const [sources, setSources] = useState<OBSSource[]>([]);
-  const [alerts, setAlerts] = useState<DesyncAlert[]>([]);
+  const [sources] = useState<OBSSource[]>([]);
+  const [isConnectingOBS, setIsConnectingOBS] = useState(false);
 
   const { status: obsStatus, connect, disconnect, error: obsError } = useOBSConnection();
   const { syncState, setMode, error: syncError } = useSyncState();
+  const networkStatus = useNetworkStatus();
+  const { alerts, clearAlert } = useDesyncAlerts();
 
   useEffect(() => {
     if (obsError) {
@@ -39,6 +42,7 @@ function App() {
   }, [syncError]);
 
   const handleConnectOBS = async () => {
+    setIsConnectingOBS(true);
     try {
       await connect({
         host: obsHost,
@@ -48,6 +52,8 @@ function App() {
       toast.success("OBSに接続しました");
     } catch (error) {
       console.error("Failed to connect to OBS:", error);
+    } finally {
+      setIsConnectingOBS(false);
     }
   };
 
@@ -71,97 +77,200 @@ function App() {
   };
 
   const handleClearAlert = (id: string) => {
-    setAlerts((prev) => prev.filter((alert) => alert.id !== id));
+    clearAlert(id);
+  };
+
+  const handleResetMode = async () => {
+    // Stop Master server or Slave client based on current mode
+    if (appMode === AppMode.Master) {
+      try {
+        await networkStatus.stopMasterServer();
+      } catch (error) {
+        console.error("Failed to stop master server:", error);
+      }
+    } else if (appMode === AppMode.Slave) {
+      try {
+        await networkStatus.disconnectFromMaster();
+      } catch (error) {
+        console.error("Failed to disconnect from master:", error);
+      }
+    }
+    
+    // Reset mode
+    setAppMode(null);
+    
+    // Disconnect from OBS if connected
+    if (obsStatus.connected) {
+      handleDisconnectOBS();
+    }
   };
 
   return (
     <div className="app">
-      <ToastContainer position="top-right" autoClose={3000} />
+      <ToastContainer 
+        position="top-right" 
+        autoClose={3000}
+        hideProgressBar={false}
+        newestOnTop
+        closeOnClick
+        rtl={false}
+        pauseOnFocusLoss
+        draggable
+        pauseOnHover
+        theme="dark"
+      />
       
       <header className="app-header">
-        <h1>OBS Sync</h1>
-        <p className="subtitle">LAN内のOBS同期システム</p>
+        <div className="header-content">
+          <div className="logo-section">
+            <div className="logo-icon">🎬</div>
+            <div>
+              <h1>OBS Sync</h1>
+              <p className="subtitle">LAN内のOBS同期システム</p>
+            </div>
+          </div>
+          {appMode && (
+            <div className="mode-badge">
+              <span className={`badge ${appMode === AppMode.Master ? 'badge-master' : 'badge-slave'}`}>
+                {appMode === AppMode.Master ? '🎛️ Master' : '📺 Slave'}
+              </span>
+            </div>
+          )}
+        </div>
       </header>
 
       <main className="app-main">
-        {/* Mode Selection */}
-        {!appMode && (
+        {!appMode ? (
           <div className="mode-selection">
-            <h2>モードを選択してください</h2>
-            <div className="mode-buttons">
-              <button
-                className="mode-button master"
+            <h2 className="selection-title">動作モードを選択</h2>
+            <p className="selection-description">
+              Masterモードは変更を配信し、Slaveモードは変更を受信します
+            </p>
+            
+            <div className="mode-cards">
+              <div 
+                className="mode-card mode-card-master"
                 onClick={() => handleSetMode(AppMode.Master)}
               >
-                <div className="mode-icon">🎛️</div>
-                <div className="mode-title">Masterモード</div>
-                <div className="mode-description">
-                  OBSの変更を監視し、Slaveに配信
+                <div className="mode-card-icon">🎛️</div>
+                <h3 className="mode-card-title">Masterモード</h3>
+                <p className="mode-card-description">
+                  OBSの変更を監視し、接続中のSlaveノードに配信します
+                </p>
+                <ul className="mode-card-features">
+                  <li>✓ 変更の監視と配信</li>
+                  <li>✓ 複数Slaveへの同時配信</li>
+                  <li>✓ リアルタイム同期</li>
+                </ul>
+                <div className="mode-card-action">
+                  <button className="btn-mode-select">選択</button>
                 </div>
-              </button>
-              <button
-                className="mode-button slave"
+              </div>
+
+              <div 
+                className="mode-card mode-card-slave"
                 onClick={() => handleSetMode(AppMode.Slave)}
               >
-                <div className="mode-icon">📺</div>
-                <div className="mode-title">Slaveモード</div>
-                <div className="mode-description">
-                  Masterからの変更を受信し、OBSに適用
+                <div className="mode-card-icon">📺</div>
+                <h3 className="mode-card-title">Slaveモード</h3>
+                <p className="mode-card-description">
+                  Masterからの変更を受信し、ローカルOBSに自動適用します
+                </p>
+                <ul className="mode-card-features">
+                  <li>✓ 自動変更適用</li>
+                  <li>✓ 非同期検出</li>
+                  <li>✓ アラート通知</li>
+                </ul>
+                <div className="mode-card-action">
+                  <button className="btn-mode-select">選択</button>
                 </div>
-              </button>
+              </div>
             </div>
           </div>
-        )}
-
-        {/* OBS Connection Section */}
-        {appMode && (
-          <>
-            <section className="section obs-connection-section">
-              <h2>OBS接続</h2>
-              <ConnectionStatus status={obsStatus} />
+        ) : (
+          <div className="app-content">
+            {/* OBS Connection Section */}
+            <section className="section obs-section">
+              <div className="section-header">
+                <h2>
+                  <span className="section-icon">🔌</span>
+                  OBS接続
+                </h2>
+                <ConnectionStatus status={obsStatus} />
+              </div>
               
               {!obsStatus.connected ? (
-                <div className="connection-form">
-                  <div className="form-row">
-                    <label>
-                      ホスト:
+                <div className="obs-connection-form">
+                  <div className="form-grid">
+                    <div className="form-group">
+                      <label htmlFor="obs-host">ホスト</label>
                       <input
+                        id="obs-host"
                         type="text"
                         value={obsHost}
                         onChange={(e) => setObsHost(e.target.value)}
                         placeholder="localhost"
+                        disabled={isConnectingOBS}
                       />
-                    </label>
-                    <label>
-                      ポート:
+                    </div>
+                    <div className="form-group">
+                      <label htmlFor="obs-port">ポート</label>
                       <input
+                        id="obs-port"
                         type="number"
                         value={obsPort}
                         onChange={(e) => setObsPort(Number(e.target.value))}
                         min={1024}
                         max={65535}
+                        disabled={isConnectingOBS}
                       />
-                    </label>
+                    </div>
                   </div>
-                  <div className="form-row">
-                    <label>
-                      パスワード (オプション):
-                      <input
-                        type="password"
-                        value={obsPassword}
-                        onChange={(e) => setObsPassword(e.target.value)}
-                        placeholder="パスワードなしの場合は空欄"
-                      />
-                    </label>
+                  <div className="form-group">
+                    <label htmlFor="obs-password">パスワード（オプション）</label>
+                    <input
+                      id="obs-password"
+                      type="password"
+                      value={obsPassword}
+                      onChange={(e) => setObsPassword(e.target.value)}
+                      placeholder="空欄の場合はパスワードなし"
+                      disabled={isConnectingOBS}
+                    />
                   </div>
-                  <button onClick={handleConnectOBS} className="btn-primary">
-                    OBSに接続
+                  <button 
+                    onClick={handleConnectOBS} 
+                    className="btn-primary btn-large"
+                    disabled={isConnectingOBS}
+                  >
+                    {isConnectingOBS ? (
+                      <>
+                        <span className="spinner"></span>
+                        接続中...
+                      </>
+                    ) : (
+                      <>
+                        <span>🔗</span>
+                        OBSに接続
+                      </>
+                    )}
                   </button>
                 </div>
               ) : (
-                <div className="connection-actions">
+                <div className="obs-connected">
+                  <div className="connected-info">
+                    <div className="info-item">
+                      <span className="info-label">接続先:</span>
+                      <span className="info-value">{obsHost}:{obsPort}</span>
+                    </div>
+                    {obsStatus.obsVersion && (
+                      <div className="info-item">
+                        <span className="info-label">OBSバージョン:</span>
+                        <span className="info-value">{obsStatus.obsVersion}</span>
+                      </div>
+                    )}
+                  </div>
                   <button onClick={handleDisconnectOBS} className="btn-danger">
-                    OBSから切断
+                    切断
                   </button>
                 </div>
               )}
@@ -169,14 +278,28 @@ function App() {
 
             {/* Sync Target Selection */}
             {obsStatus.connected && (
-              <section className="section">
+              <section className="section sync-section">
+                <div className="section-header">
+                  <h2>
+                    <span className="section-icon">🎯</span>
+                    同期設定
+                  </h2>
+                </div>
                 <SyncTargetSelector />
               </section>
             )}
 
             {/* Mode-specific Controls */}
             {obsStatus.connected && (
-              <section className="section">
+              <section className="section control-section">
+                <div className="section-header">
+                  <h2>
+                    <span className="section-icon">
+                      {appMode === AppMode.Master ? '🎛️' : '📺'}
+                    </span>
+                    {appMode === AppMode.Master ? 'Masterサーバー' : 'Slave接続'}
+                  </h2>
+                </div>
                 {appMode === AppMode.Master ? (
                   <MasterControl />
                 ) : (
@@ -188,36 +311,47 @@ function App() {
             {/* Sources and Alerts */}
             {obsStatus.connected && syncState.isActive && (
               <div className="info-panels">
-                <section className="section">
-                  <OBSSourceList sources={sources} />
-                </section>
+                {sources.length > 0 && (
+                  <section className="section">
+                    <div className="section-header">
+                      <h2>
+                        <span className="section-icon">📋</span>
+                        OBSソース
+                      </h2>
+                    </div>
+                    <OBSSourceList sources={sources} />
+                  </section>
+                )}
                 
                 {appMode === AppMode.Slave && (
                   <section className="section">
+                    <div className="section-header">
+                      <h2>
+                        <span className="section-icon">⚠️</span>
+                        アラート
+                      </h2>
+                    </div>
                     <AlertPanel alerts={alerts} onClearAlert={handleClearAlert} />
                   </section>
                 )}
               </div>
             )}
 
-            {/* Reset Mode */}
+            {/* Mode Reset */}
             <div className="mode-reset">
               <button
-                onClick={() => {
-                  setAppMode(null);
-                  setMode(null as any).catch(console.error);
-                }}
-                className="btn-secondary"
+                onClick={handleResetMode}
+                className="btn-ghost"
               >
-                モードを変更
+                ← モードを変更
               </button>
             </div>
-          </>
+          </div>
         )}
       </main>
 
       <footer className="app-footer">
-        <p>OBS Sync - イベント向けOBS同期システム</p>
+        <p>© 2024 OBS Sync - イベント向けOBS同期システム</p>
       </footer>
     </div>
   );

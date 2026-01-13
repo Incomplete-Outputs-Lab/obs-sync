@@ -10,6 +10,7 @@ pub enum SyncMessageType {
     ImageUpdate,
     Heartbeat,
     StateSync,
+    StateSyncRequest,  // Slave requests initial state from Master
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -46,6 +47,14 @@ impl SyncMessage {
             Value::Object(serde_json::Map::new()),
         )
     }
+
+    pub fn state_sync_request() -> Self {
+        Self::new(
+            SyncMessageType::StateSyncRequest,
+            SyncTargetType::Program,
+            Value::Object(serde_json::Map::new()),
+        )
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -76,6 +85,29 @@ pub struct ImageUpdatePayload {
     pub scene_name: String,
     pub source_name: String,
     pub file: String,
+    /// Base64 encoded image data
+    pub image_data: Option<String>,
     pub width: Option<f64>,
     pub height: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StateSyncPayload {
+    pub current_program_scene: String,
+    pub current_preview_scene: Option<String>,
+    pub scenes: Vec<SceneData>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SceneData {
+    pub name: String,
+    pub items: Vec<SceneItemData>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SceneItemData {
+    pub source_name: String,
+    pub source_type: String,
+    /// Base64 encoded image data for image sources
+    pub image_data: Option<String>,
 }

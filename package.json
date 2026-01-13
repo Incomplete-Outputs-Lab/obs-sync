@@ -5,6 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:master": "cross-env VITE_PORT=1420 vite --port 1420",
+    "dev:slave": "cross-env VITE_PORT=1421 vite --port 1421",
+    "tauri:master": "cross-env VITE_PORT=1420 tauri dev",
+    "tauri:slave": "cross-env VITE_PORT=1421 TAURI_DEV_PORT=1421 tauri dev --port 1421",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri"
@@ -22,6 +26,7 @@
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.6.0",
+    "cross-env": "^7.0.3",
     "typescript": "~5.8.3",
     "vite": "^7.0.4"
   }

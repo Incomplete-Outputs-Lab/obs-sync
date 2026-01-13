@@ -82,12 +82,8 @@ impl OBSClient {
         }
     }
 
-    pub async fn get_client(&self) -> Option<Arc<RwLock<Option<Client>>>> {
-        if self.is_connected().await {
-            Some(self.client.clone())
-        } else {
-            None
-        }
+    pub fn get_client_arc(&self) -> Arc<RwLock<Option<Client>>> {
+        self.client.clone()
     }
 }
 
