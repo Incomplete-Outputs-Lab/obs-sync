@@ -37,19 +37,19 @@ jobs:
 
       - name: Check Rust formatting
         working-directory: src-tauri
-        run: cargo fmt -- --check
+        run: cargo fmt --all -- --check
 
       - name: Run Clippy
         working-directory: src-tauri
-        run: cargo clippy -- -D warnings
+        run: cargo clippy --all-targets --all-features -- -D warnings
 
       - name: Build Rust code
         working-directory: src-tauri
-        run: cargo build --release
+        run: cargo build --release --all-features
 
       - name: Run Rust tests
         working-directory: src-tauri
-        run: cargo test
+        run: cargo test --all-features
 
       - name: Build frontend
         run: npm run build

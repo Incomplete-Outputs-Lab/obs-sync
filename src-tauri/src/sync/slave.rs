@@ -1,10 +1,10 @@
-use super::protocol::{SyncMessage, SyncMessageType};
 use super::diff::{DiffDetector, DiffSeverity};
+use super::protocol::{SyncMessage, SyncMessageType};
 use crate::obs::{commands::OBSCommands, OBSClient};
 use anyhow::{Context, Result};
 use std::sync::Arc;
-use tokio::sync::{mpsc, RwLock};
 use tokio::fs;
+use tokio::sync::{mpsc, RwLock};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -28,6 +28,7 @@ pub struct SlaveSync {
     obs_client: Arc<OBSClient>,
     alert_tx: mpsc::UnboundedSender<DesyncAlert>,
     expected_state: Arc<RwLock<serde_json::Value>>,
+    state_report_tx: Arc<RwLock<Option<mpsc::UnboundedSender<SyncMessage>>>>,
 }
 
 impl SlaveSync {
@@ -38,9 +39,14 @@ impl SlaveSync {
                 obs_client,
                 alert_tx: tx,
                 expected_state: Arc::new(RwLock::new(serde_json::json!({}))),
+                state_report_tx: Arc::new(RwLock::new(None)),
             },
             rx,
         )
+    }
+
+    pub async fn set_state_report_sender(&self, tx: mpsc::UnboundedSender<SyncMessage>) {
+        *self.state_report_tx.write().await = Some(tx);
     }
 
     /// Start periodic state checking task
@@ -48,13 +54,15 @@ impl SlaveSync {
         let obs_client = self.obs_client.clone();
         let expected_state = self.expected_state.clone();
         let alert_tx = self.alert_tx.clone();
+        let state_report_tx = self.state_report_tx.clone();
 
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(interval_secs));
-            
+            let mut interval =
+                tokio::time::interval(tokio::time::Duration::from_secs(interval_secs));
+
             loop {
                 interval.tick().await;
-                
+
                 // Get current local OBS state
                 let local_state = match Self::get_current_obs_state(&obs_client).await {
                     Ok(state) => state,
@@ -66,22 +74,56 @@ impl SlaveSync {
 
                 // Compare with expected state
                 let expected = expected_state.read().await;
-                if expected.is_null() || expected.as_object().map(|o| o.is_empty()).unwrap_or(true) {
+                if expected.is_null() || expected.as_object().map(|o| o.is_empty()).unwrap_or(true)
+                {
                     // No expected state yet, skip check
                     continue;
                 }
 
                 let diffs = DiffDetector::detect_differences(&local_state, &expected);
-                
+
+                // Send state report to Master
+                {
+                    let tx = state_report_tx.read().await;
+                    if let Some(ref sender) = tx.as_ref() {
+                        let desync_details: Vec<serde_json::Value> = diffs
+                            .iter()
+                            .map(|diff| {
+                                serde_json::json!({
+                                    "category": format!("{:?}", diff.category),
+                                    "scene_name": diff.scene_name,
+                                    "source_name": diff.source_name,
+                                    "description": diff.description,
+                                    "severity": format!("{:?}", diff.severity),
+                                })
+                            })
+                            .collect();
+
+                        let report = SyncMessage::new(
+                            SyncMessageType::StateReport,
+                            SyncTargetType::Program,
+                            serde_json::json!({
+                                "is_synced": diffs.is_empty(),
+                                "desync_details": desync_details,
+                                "current_state": local_state,
+                            }),
+                        );
+
+                        if let Err(e) = sender.send(report) {
+                            eprintln!("Failed to send state report: {}", e);
+                        }
+                    }
+                }
+
                 if !diffs.is_empty() {
                     println!("⚠️  Detected {} state difference(s)", diffs.len());
-                    
+
                     for diff in diffs {
                         let severity = match diff.severity {
                             DiffSeverity::Critical => AlertSeverity::Error,
                             _ => AlertSeverity::Warning,
                         };
-                        
+
                         let alert = DesyncAlert {
                             id: uuid::Uuid::new_v4().to_string(),
                             timestamp: chrono::Utc::now().timestamp_millis(),
@@ -90,7 +132,7 @@ impl SlaveSync {
                             message: diff.description,
                             severity,
                         };
-                        
+
                         if let Err(e) = alert_tx.send(alert) {
                             eprintln!("Failed to send desync alert: {}", e);
                         }
@@ -104,20 +146,30 @@ impl SlaveSync {
     async fn get_current_obs_state(obs_client: &Arc<OBSClient>) -> Result<serde_json::Value> {
         let client_arc = obs_client.get_client_arc();
         let client_lock = client_arc.read().await;
-        
+
         if let Some(client) = client_lock.as_ref() {
             // Get current scene
-            let current_scene = client.scenes().current_program_scene().await
+            let current_scene = client
+                .scenes()
+                .current_program_scene()
+                .await
                 .context("Failed to get current scene")?;
-            
+
             // Get sources in current scene
-            let items = client.scene_items().list(&current_scene).await
+            let items = client
+                .scene_items()
+                .list(&current_scene)
+                .await
                 .context("Failed to get scene items")?;
-            
-                        let mut sources = Vec::new();
-                        for item in items {
-                            let transform = client.scene_items().transform(&current_scene, item.id).await.ok();
-                
+
+            let mut sources = Vec::new();
+            for item in items {
+                let transform = client
+                    .scene_items()
+                    .transform(&current_scene, item.id)
+                    .await
+                    .ok();
+
                 sources.push(serde_json::json!({
                     "name": item.source_name,
                     "transform": transform.map(|t| serde_json::json!({
@@ -129,7 +181,7 @@ impl SlaveSync {
                     })),
                 }));
             }
-            
+
             Ok(serde_json::json!({
                 "current_scene": current_scene,
                 "sources": sources,
@@ -142,7 +194,7 @@ impl SlaveSync {
     /// Update expected state from sync message
     async fn update_expected_state(&self, message: &SyncMessage) {
         let mut expected = self.expected_state.write().await;
-        
+
         match message.message_type {
             SyncMessageType::SceneChange => {
                 if let Some(scene_name) = message.payload["scene_name"].as_str() {
@@ -163,7 +215,7 @@ impl SlaveSync {
     pub async fn apply_sync_message(&self, message: SyncMessage) -> Result<()> {
         // Update expected state first
         self.update_expected_state(&message).await;
-        
+
         let client_arc = self.obs_client.get_client_arc();
         let client_lock = client_arc.read().await;
         let client = client_lock.as_ref().context("OBS client not connected")?;
@@ -193,7 +245,10 @@ impl SlaveSync {
 
                 // Apply transform if included in payload
                 if let Some(transform) = message.payload["transform"].as_object() {
-                    if let Err(e) = self.apply_transform(&client, scene_name, scene_item_id, transform).await {
+                    if let Err(e) = self
+                        .apply_transform(&client, scene_name, scene_item_id, transform)
+                        .await
+                    {
                         self.send_alert(
                             scene_name.to_string(),
                             String::new(),
@@ -201,7 +256,10 @@ impl SlaveSync {
                             AlertSeverity::Warning,
                         )?;
                     } else {
-                        println!("Applied transform update for item {} in scene {}", scene_item_id, scene_name);
+                        println!(
+                            "Applied transform update for item {} in scene {}",
+                            scene_item_id, scene_name
+                        );
                     }
                 } else {
                     eprintln!("Transform data missing in payload");
@@ -211,19 +269,14 @@ impl SlaveSync {
                 let source_name = message.payload["source_name"]
                     .as_str()
                     .context("Invalid source_name")?;
-                let file_path = message.payload["file"]
-                    .as_str()
-                    .unwrap_or("");
-                let image_data = message.payload["image_data"]
-                    .as_str();
+                let file_path = message.payload["file"].as_str().unwrap_or("");
+                let image_data = message.payload["image_data"].as_str();
 
                 // Handle image update
-                if let Err(e) = self.handle_image_update(
-                    &client,
-                    source_name,
-                    file_path,
-                    image_data
-                ).await {
+                if let Err(e) = self
+                    .handle_image_update(&client, source_name, file_path, image_data)
+                    .await
+                {
                     self.send_alert(
                         String::new(),
                         source_name.to_string(),
@@ -237,46 +290,61 @@ impl SlaveSync {
             }
             SyncMessageType::StateSync => {
                 println!("Applying complete initial state from master...");
-                
+
                 // Apply all scenes and items
                 if let Some(scenes) = message.payload["scenes"].as_array() {
                     for scene in scenes {
                         let scene_name = scene["name"].as_str().unwrap_or("");
                         println!("Processing scene: {}", scene_name);
-                        
+
                         // Apply items in this scene
                         if let Some(items) = scene["items"].as_array() {
                             for item in items {
                                 let source_name = item["source_name"].as_str().unwrap_or("");
                                 let scene_item_id = item["scene_item_id"].as_i64().unwrap_or(0);
-                                
-                                println!("  - Applying item: {} (id: {})", source_name, scene_item_id);
-                                
+
+                                println!(
+                                    "  - Applying item: {} (id: {})",
+                                    source_name, scene_item_id
+                                );
+
                                 // Apply transform if available
                                 if let Some(transform) = item["transform"].as_object() {
-                                    if let Err(e) = self.apply_transform(
-                                        &client,
-                                        scene_name,
-                                        scene_item_id,
-                                        transform
-                                    ).await {
-                                        eprintln!("Failed to apply transform for {}: {}", source_name, e);
+                                    if let Err(e) = self
+                                        .apply_transform(
+                                            &client,
+                                            scene_name,
+                                            scene_item_id,
+                                            transform,
+                                        )
+                                        .await
+                                    {
+                                        eprintln!(
+                                            "Failed to apply transform for {}: {}",
+                                            source_name, e
+                                        );
                                     }
                                 }
-                                
+
                                 // Apply image data if available
                                 if let Some(image_data) = item["image_data"].as_object() {
                                     if let (Some(file), Some(data)) = (
                                         image_data.get("file").and_then(|v| v.as_str()),
-                                        image_data.get("data").and_then(|v| v.as_str())
+                                        image_data.get("data").and_then(|v| v.as_str()),
                                     ) {
-                                        if let Err(e) = self.handle_image_update(
-                                            &client,
-                                            source_name,
-                                            file,
-                                            Some(data)
-                                        ).await {
-                                            eprintln!("Failed to apply image for {}: {}", source_name, e);
+                                        if let Err(e) = self
+                                            .handle_image_update(
+                                                &client,
+                                                source_name,
+                                                file,
+                                                Some(data),
+                                            )
+                                            .await
+                                        {
+                                            eprintln!(
+                                                "Failed to apply image for {}: {}",
+                                                source_name, e
+                                            );
                                         }
                                     }
                                 }
@@ -284,10 +352,14 @@ impl SlaveSync {
                         }
                     }
                 }
-                
+
                 // Apply current program scene
                 if let Some(scene_name) = message.payload["current_program_scene"].as_str() {
-                    if let Err(e) = crate::obs::commands::OBSCommands::set_current_program_scene(&client, scene_name).await {
+                    if let Err(e) = crate::obs::commands::OBSCommands::set_current_program_scene(
+                        &client, scene_name,
+                    )
+                    .await
+                    {
                         self.send_alert(
                             scene_name.to_string(),
                             String::new(),
@@ -298,13 +370,31 @@ impl SlaveSync {
                         println!("✓ Applied current program scene: {}", scene_name);
                     }
                 }
-                
+
                 // Apply preview scene if in studio mode
                 if let Some(preview_scene) = message.payload["current_preview_scene"].as_str() {
-                    // Note: Setting preview scene requires studio mode to be enabled
-                    println!("Preview scene in master: {}", preview_scene);
+                    // Setting preview scene requires studio mode to be enabled
+                    match client
+                        .scenes()
+                        .set_current_preview_scene(preview_scene)
+                        .await
+                    {
+                        Ok(_) => {
+                            println!("✓ Applied current preview scene: {}", preview_scene);
+                        }
+                        Err(e) => {
+                            // Studio mode might not be enabled, log warning but don't fail
+                            println!("⚠️  Failed to set preview scene (Studio Mode may not be enabled): {}", e);
+                            self.send_alert(
+                                preview_scene.to_string(),
+                                String::new(),
+                                format!("Failed to sync preview scene: {} (Studio Mode may not be enabled)", e),
+                                AlertSeverity::Warning,
+                            )?;
+                        }
+                    }
                 }
-                
+
                 println!("✓ Initial state fully applied");
             }
             _ => {}
@@ -315,26 +405,74 @@ impl SlaveSync {
 
     async fn apply_transform(
         &self,
-        _client: &obws::Client,
+        client: &obws::Client,
         scene_name: &str,
         scene_item_id: i64,
         transform: &serde_json::Map<String, serde_json::Value>,
     ) -> Result<()> {
-        // Note: Transform application depends on obws library API structure
-        // This is a placeholder implementation
-        // TODO: Implement actual transform application based on obws version
-        
+        // Get current transform to preserve values not in the update
+        let current_transform = match client
+            .scene_items()
+            .transform(scene_name, scene_item_id)
+            .await
+        {
+            Ok(t) => t,
+            Err(e) => {
+                eprintln!(
+                    "Failed to get current transform for item {}: {}",
+                    scene_item_id, e
+                );
+                return Err(anyhow::anyhow!("Failed to get current transform: {}", e));
+            }
+        };
+
+        // Extract values from JSON payload
+        let position_x = transform
+            .get("position_x")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(current_transform.position_x);
+        let position_y = transform
+            .get("position_y")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(current_transform.position_y);
+        let scale_x = transform
+            .get("scale_x")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(current_transform.scale_x);
+        let scale_y = transform
+            .get("scale_y")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(current_transform.scale_y);
+        let rotation = transform
+            .get("rotation")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(current_transform.rotation);
+
+        // Build new transform using SceneItemTransformBuilder
+        use obws::requests::scene_items::SceneItemTransformBuilder;
+        let new_transform = SceneItemTransformBuilder::new()
+            .position((position_x, position_y))
+            .scale((scale_x, scale_y))
+            .rotation(rotation)
+            .build();
+
+        // Apply the transform using SetTransformBuilder
+        use obws::requests::scene_items::SetTransformBuilder;
+        client
+            .scene_items()
+            .set_transform(SetTransformBuilder::new(
+                scene_name,
+                scene_item_id,
+                new_transform,
+            ))
+            .await
+            .context("Failed to set transform")?;
+
         println!(
-            "Transform update received for item {} in scene {}: {:?}",
-            scene_item_id, scene_name, transform
+            "Applied transform for item {} in scene {}: pos=({}, {}), scale=({}, {}), rotation={}",
+            scene_item_id, scene_name, position_x, position_y, scale_x, scale_y, rotation
         );
-        
-        // In production, you would use obws API to apply the transform:
-        // - Extract position_x, position_y
-        // - Extract scale_x, scale_y
-        // - Extract rotation
-        // - Call appropriate obws method to set transform
-        
+
         Ok(())
     }
 
@@ -347,50 +485,56 @@ impl SlaveSync {
     ) -> Result<()> {
         if let Some(encoded_data) = image_data {
             println!("Received image data for {}, decoding...", source_name);
-            
+
             // Decode base64 image data
-            let decoded_data = base64::Engine::decode(
-                &base64::engine::general_purpose::STANDARD,
-                encoded_data
-            ).context("Failed to decode image data")?;
-            
+            let decoded_data =
+                base64::Engine::decode(&base64::engine::general_purpose::STANDARD, encoded_data)
+                    .context("Failed to decode image data")?;
+
             println!("Decoded {} bytes of image data", decoded_data.len());
-            
+
+            // Detect image format from magic bytes
+            let file_extension = Self::detect_image_format(&decoded_data);
+
             // Create temp directory for synced images
             let temp_dir = std::env::temp_dir().join("obs-sync");
-            fs::create_dir_all(&temp_dir).await.context("Failed to create temp directory")?;
-            
+            fs::create_dir_all(&temp_dir)
+                .await
+                .context("Failed to create temp directory")?;
+
             // Generate unique filename
-            let file_extension = "png"; // Default to PNG, could be detected from data
-            let temp_file_path = temp_dir.join(format!("{}_{}.{}", 
+            let temp_file_path = temp_dir.join(format!(
+                "{}_{}.{}",
                 source_name.replace("/", "_").replace("\\", "_"),
                 chrono::Utc::now().timestamp_millis(),
                 file_extension
             ));
-            
+
             println!("Saving image to: {:?}", temp_file_path);
-            
+
             // Write decoded data to temp file
             fs::write(&temp_file_path, &decoded_data)
                 .await
                 .context("Failed to write image file")?;
-            
+
             // Update OBS input settings with new file path
             let temp_file_str = temp_file_path.to_string_lossy().to_string();
             let settings = serde_json::json!({
                 "file": temp_file_str
             });
-            
+
             println!("Applying image to OBS source: {}", source_name);
-            
+
             // Apply settings to OBS
-            match client.inputs().set_settings(
-                obws::requests::inputs::SetSettings {
+            match client
+                .inputs()
+                .set_settings(obws::requests::inputs::SetSettings {
                     input: source_name,
                     settings: &settings,
                     overlay: Some(true),
-                }
-            ).await {
+                })
+                .await
+            {
                 Ok(_) => {
                     println!("Successfully applied image to {}", source_name);
                     Ok(())
@@ -403,6 +547,30 @@ impl SlaveSync {
         } else {
             println!("No image data provided for {}", source_name);
             Ok(())
+        }
+    }
+
+    /// Detect image format from magic bytes
+    fn detect_image_format(data: &[u8]) -> &'static str {
+        if data.len() < 4 {
+            return "png"; // Default to PNG if data is too short
+        }
+
+        // Check magic bytes for common image formats
+        match &data[0..4] {
+            [0x89, 0x50, 0x4E, 0x47] => "png", // PNG: 89 50 4E 47
+            [0xFF, 0xD8, 0xFF, _] => "jpg",    // JPEG: FF D8 FF
+            [0x47, 0x49, 0x46, 0x38] => "gif", // GIF: 47 49 46 38
+            [0x42, 0x4D, _, _] => "bmp",       // BMP: 42 4D
+            [0x52, 0x49, 0x46, 0x46] => {
+                // RIFF (WebP or other)
+                if data.len() >= 8 && &data[4..8] == b"WEBP" {
+                    "webp"
+                } else {
+                    "png" // Default fallback
+                }
+            }
+            _ => "png", // Default to PNG if format is unknown
         }
     }
 

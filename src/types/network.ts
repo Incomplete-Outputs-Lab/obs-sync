@@ -32,3 +32,32 @@ export interface SlaveInfo {
   connectedAt: number;
   lastHeartbeat: number;
 }
+
+export interface ClientInfo {
+  id: string;
+  ipAddress: string;
+  connectedAt: number;
+  lastActivity: number;
+}
+
+export interface DesyncDetail {
+  category: string;
+  sceneName: string;
+  sourceName: string;
+  description: string;
+  severity: string;
+}
+
+export interface SlaveStatus {
+  clientId: string;
+  isSynced: boolean;
+  desyncDetails: DesyncDetail[];
+  lastReportTime: number;
+}
+
+export interface ReconnectionStatus {
+  isReconnecting: boolean;
+  attemptCount: number;
+  maxAttempts: number;
+  lastError?: string;
+}

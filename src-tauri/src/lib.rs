@@ -1,7 +1,7 @@
+mod commands;
+mod network;
 mod obs;
 mod sync;
-mod network;
-mod commands;
 
 use commands::AppState;
 use tauri::Manager;
@@ -9,6 +9,28 @@ use tauri::Manager;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app_state = AppState::new();
+
+    // Initialize logging
+    let log_dir = std::env::temp_dir().join("obs-sync-logs");
+    std::fs::create_dir_all(&log_dir).ok();
+    let log_file = log_dir.join(format!(
+        "obs-sync-{}.log",
+        chrono::Utc::now().format("%Y-%m-%d")
+    ));
+
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_file)
+        .expect("Failed to open log file");
+
+    tracing_subscriber::fmt()
+        .with_writer(file)
+        .with_target(false)
+        .with_thread_ids(false)
+        .with_thread_names(false)
+        .with_ansi(false)
+        .init();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -35,6 +57,18 @@ pub fn run() {
             commands::disconnect_from_master,
             commands::set_sync_targets,
             commands::get_connected_clients_count,
+            commands::get_connected_clients_info,
+            commands::get_slave_statuses,
+            commands::get_obs_sources,
+            commands::get_slave_reconnection_status,
+            commands::resync_all_slaves,
+            commands::resync_specific_slave,
+            commands::request_resync_from_master,
+            commands::save_settings,
+            commands::load_settings,
+            commands::get_log_file_path,
+            commands::open_log_file,
+            commands::get_performance_metrics,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

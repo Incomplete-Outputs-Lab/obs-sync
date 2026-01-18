@@ -7,6 +7,7 @@ import { useOBSConnection } from "./hooks/useOBSConnection";
 import { useSyncState } from "./hooks/useSyncState";
 import { useNetworkStatus } from "./hooks/useNetworkStatus";
 import { useDesyncAlerts } from "./hooks/useDesyncAlerts";
+import { useSettings } from "./hooks/useSettings";
 import { ConnectionStatus } from "./components/ConnectionStatus";
 import { MasterControl } from "./components/MasterControl";
 import { SlaveMonitor } from "./components/SlaveMonitor";
@@ -21,13 +22,22 @@ function App() {
   const [obsHost, setObsHost] = useState("localhost");
   const [obsPort, setObsPort] = useState(4455);
   const [obsPassword, setObsPassword] = useState("");
-  const [sources] = useState<OBSSource[]>([]);
   const [isConnectingOBS, setIsConnectingOBS] = useState(false);
 
-  const { status: obsStatus, connect, disconnect, error: obsError } = useOBSConnection();
+  const { settings, isLoading: settingsLoading, loadSettings, saveSettings } = useSettings();
+  const { status: obsStatus, sources, connect, disconnect, error: obsError } = useOBSConnection();
   const { syncState, setMode, error: syncError } = useSyncState();
   const networkStatus = useNetworkStatus();
   const { alerts, clearAlert, clearAllAlerts } = useDesyncAlerts();
+
+  // Load settings into state when they're loaded
+  useEffect(() => {
+    if (settings && !settingsLoading) {
+      setObsHost(settings.obs.host);
+      setObsPort(settings.obs.port);
+      setObsPassword(settings.obs.password);
+    }
+  }, [settings, settingsLoading]);
 
   useEffect(() => {
     if (obsError) {
@@ -49,6 +59,17 @@ function App() {
         port: obsPort,
         password: obsPassword || undefined,
       });
+      // Save OBS settings after successful connection
+      if (settings) {
+        await saveSettings({
+          ...settings,
+          obs: {
+            host: obsHost,
+            port: obsPort,
+            password: obsPassword,
+          },
+        });
+      }
       toast.success("OBSに接続しました");
     } catch (error) {
       console.error("Failed to connect to OBS:", error);

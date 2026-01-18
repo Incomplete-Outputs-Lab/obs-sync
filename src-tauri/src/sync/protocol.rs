@@ -10,7 +10,8 @@ pub enum SyncMessageType {
     ImageUpdate,
     Heartbeat,
     StateSync,
-    StateSyncRequest,  // Slave requests initial state from Master
+    StateSyncRequest, // Slave requests initial state from Master
+    StateReport,      // Slave reports its current state to Master
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

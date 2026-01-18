@@ -75,13 +75,17 @@ impl MasterSync {
                             let obs_client_clone = obs_client.clone();
                             let message_tx_clone = message_tx.clone();
                             let scene_name_clone = scene_name.clone();
-                            
+
                             tokio::spawn(async move {
                                 let client_arc = obs_client_clone.get_client_arc();
                                 let client_lock = client_arc.read().await;
-                                
+
                                 if let Some(client) = client_lock.as_ref() {
-                                    match client.scene_items().transform(&scene_name_clone, scene_item_id).await {
+                                    match client
+                                        .scene_items()
+                                        .transform(&scene_name_clone, scene_item_id)
+                                        .await
+                                    {
                                         Ok(transform) => {
                                             let payload = serde_json::json!({
                                                 "scene_name": scene_name_clone,
@@ -96,17 +100,23 @@ impl MasterSync {
                                                     "height": transform.height,
                                                 }
                                             });
-                                            
+
                                             let msg = SyncMessage::new(
                                                 SyncMessageType::TransformUpdate,
                                                 SyncTargetType::Source,
                                                 payload,
                                             );
                                             let _ = message_tx_clone.send(msg);
-                                            println!("Sent transform update for scene item {} in {}", scene_item_id, scene_name_clone);
+                                            println!(
+                                                "Sent transform update for scene item {} in {}",
+                                                scene_item_id, scene_name_clone
+                                            );
                                         }
                                         Err(e) => {
-                                            eprintln!("Failed to get transform for item {}: {}", scene_item_id, e);
+                                            eprintln!(
+                                                "Failed to get transform for item {}: {}",
+                                                scene_item_id, e
+                                            );
                                         }
                                     }
                                 }
@@ -118,21 +128,26 @@ impl MasterSync {
                             let obs_client_clone = obs_client.clone();
                             let message_tx_clone = message_tx.clone();
                             let input_name_clone = input_name.clone();
-                            
+
                             // Spawn task to get image data
                             tokio::spawn(async move {
                                 let client_arc = obs_client_clone.get_client_arc();
                                 let client_lock = client_arc.read().await;
-                                
+
                                 if let Some(client) = client_lock.as_ref() {
                                     // Get input settings
-                                    match client.inputs().settings::<serde_json::Value>(&input_name_clone).await {
+                                    match client
+                                        .inputs()
+                                        .settings::<serde_json::Value>(&input_name_clone)
+                                        .await
+                                    {
                                         Ok(settings) => {
-                                            let file_path = settings.settings
+                                            let file_path = settings
+                                                .settings
                                                 .get("file")
                                                 .and_then(|v| v.as_str())
                                                 .unwrap_or("");
-                                            
+
                                             // Read and encode image if file path exists
                                             let image_data = if !file_path.is_empty() {
                                                 match tokio::fs::read(file_path).await {
@@ -141,7 +156,11 @@ impl MasterSync {
                                                             &base64::engine::general_purpose::STANDARD,
                                                             &data
                                                         );
-                                                        println!("Encoded image: {} ({} bytes)", file_path, data.len());
+                                                        println!(
+                                                            "Encoded image: {} ({} bytes)",
+                                                            file_path,
+                                                            data.len()
+                                                        );
                                                         Some(encoded)
                                                     }
                                                     Err(e) => {
@@ -152,14 +171,14 @@ impl MasterSync {
                                             } else {
                                                 None
                                             };
-                                            
+
                                             let payload = serde_json::json!({
                                                 "scene_name": "",
                                                 "source_name": input_name_clone,
                                                 "file": file_path,
                                                 "image_data": image_data
                                             });
-                                            
+
                                             let msg = SyncMessage::new(
                                                 SyncMessageType::ImageUpdate,
                                                 SyncTargetType::Source,
@@ -190,8 +209,14 @@ impl MasterSync {
     async fn read_and_encode_image(file_path: &str) -> Option<String> {
         match tokio::fs::read(file_path).await {
             Ok(data) => {
-                let encoded = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &data);
-                println!("Encoded image: {} ({} bytes -> {} chars)", file_path, data.len(), encoded.len());
+                let encoded =
+                    base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &data);
+                println!(
+                    "Encoded image: {} ({} bytes -> {} chars)",
+                    file_path,
+                    data.len(),
+                    encoded.len()
+                );
                 Some(encoded)
             }
             Err(e) => {
@@ -202,21 +227,23 @@ impl MasterSync {
     }
 
     /// Get image source settings from OBS and encode the file
-    pub async fn get_image_data_for_source(
-        &self,
-        input_name: &str,
-    ) -> Option<(String, String)> {
+    pub async fn get_image_data_for_source(&self, input_name: &str) -> Option<(String, String)> {
         let client_arc = self.obs_client.get_client_arc();
         let client_lock = client_arc.read().await;
-        
+
         if let Some(client) = client_lock.as_ref() {
             // Get input settings to find the file path
-            match client.inputs().settings::<serde_json::Value>(input_name).await {
+            match client
+                .inputs()
+                .settings::<serde_json::Value>(input_name)
+                .await
+            {
                 Ok(settings) => {
                     // Try to get file path from settings
-                    if let Some(file_path) = settings.settings.get("file").and_then(|v| v.as_str()) {
+                    if let Some(file_path) = settings.settings.get("file").and_then(|v| v.as_str())
+                    {
                         println!("Found image file for {}: {}", input_name, file_path);
-                        
+
                         // Read and encode the image
                         if let Some(encoded_data) = Self::read_and_encode_image(file_path).await {
                             return Some((file_path.to_string(), encoded_data));
@@ -230,7 +257,7 @@ impl MasterSync {
                 }
             }
         }
-        
+
         None
     }
 
@@ -239,7 +266,7 @@ impl MasterSync {
         println!("Collecting full OBS state for new slave...");
         let client_arc = self.obs_client.get_client_arc();
         let client_lock = client_arc.read().await;
-        
+
         if let Some(client) = client_lock.as_ref() {
             // Get current program scene
             let current_program_scene = match client.scenes().current_program_scene().await {
@@ -263,45 +290,55 @@ impl MasterSync {
             };
 
             let mut scenes_data = Vec::new();
-            
+
             // For each scene, get all items
             for scene in scenes_list.scenes {
                 println!("Processing scene: {}", scene.name);
-                
+
                 match client.scene_items().list(&scene.name).await {
                     Ok(items) => {
                         let mut scene_items_data = Vec::new();
-                        
+
                         for item in items {
                             println!("  - Item: {} (id: {})", item.source_name, item.id);
-                            
+
                             // Get transform for this item
-                            let transform = match client.scene_items().transform(&scene.name, item.id).await {
-                                Ok(t) => Some(serde_json::json!({
-                                    "position_x": t.position_x,
-                                    "position_y": t.position_y,
-                                    "rotation": t.rotation,
-                                    "scale_x": t.scale_x,
-                                    "scale_y": t.scale_y,
-                                    "width": t.width,
-                                    "height": t.height,
-                                })),
-                                Err(e) => {
-                                    eprintln!("Failed to get transform for {}: {}", item.source_name, e);
-                                    None
-                                }
-                            };
+                            let transform =
+                                match client.scene_items().transform(&scene.name, item.id).await {
+                                    Ok(t) => Some(serde_json::json!({
+                                        "position_x": t.position_x,
+                                        "position_y": t.position_y,
+                                        "rotation": t.rotation,
+                                        "scale_x": t.scale_x,
+                                        "scale_y": t.scale_y,
+                                        "width": t.width,
+                                        "height": t.height,
+                                    })),
+                                    Err(e) => {
+                                        eprintln!(
+                                            "Failed to get transform for {}: {}",
+                                            item.source_name, e
+                                        );
+                                        None
+                                    }
+                                };
 
                             // Get source type from item
-                            let source_type = item.input_kind.clone().unwrap_or_else(|| "unknown".to_string());
+                            let source_type = item
+                                .input_kind
+                                .clone()
+                                .unwrap_or_else(|| "unknown".to_string());
 
                             // If it's an image source, get the image data
                             let image_data = if source_type.contains("image") {
-                                self.get_image_data_for_source(&item.source_name).await
-                                    .map(|(path, data)| serde_json::json!({
-                                        "file": path,
-                                        "data": data
-                                    }))
+                                self.get_image_data_for_source(&item.source_name).await.map(
+                                    |(path, data)| {
+                                        serde_json::json!({
+                                            "file": path,
+                                            "data": data
+                                        })
+                                    },
+                                )
                             } else {
                                 None
                             };
@@ -314,7 +351,7 @@ impl MasterSync {
                                 "image_data": image_data,
                             }));
                         }
-                        
+
                         scenes_data.push(serde_json::json!({
                             "name": scene.name,
                             "items": scene_items_data,
@@ -333,14 +370,14 @@ impl MasterSync {
                 "scenes": scenes_data,
             });
 
-            let msg = SyncMessage::new(
-                SyncMessageType::StateSync,
-                SyncTargetType::Program,
-                payload,
-            );
+            let msg =
+                SyncMessage::new(SyncMessageType::StateSync, SyncTargetType::Program, payload);
 
             self.message_tx.send(msg)?;
-            println!("✓ Sent complete initial state to slave ({} scenes)", scenes_data.len());
+            println!(
+                "✓ Sent complete initial state to slave ({} scenes)",
+                scenes_data.len()
+            );
         }
 
         Ok(())

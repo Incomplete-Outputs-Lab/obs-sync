@@ -37,7 +37,7 @@ impl OBSClient {
         let host = config.host.clone();
         let port = config.port;
         let password = config.password.clone();
-        
+
         let client = Client::connect(host, port, password)
             .await
             .context("Failed to connect to OBS WebSocket")?;
@@ -63,7 +63,7 @@ impl OBSClient {
 
     pub async fn get_status(&self) -> OBSConnectionStatus {
         let client_lock = self.client.read().await;
-        
+
         if let Some(client) = client_lock.as_ref() {
             // Try to get version info
             if let Ok(version) = client.general().version().await {

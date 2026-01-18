@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { NetworkStatus, ConnectionState } from "../types/network";
+import { NetworkStatus, ConnectionState, ClientInfo, SlaveStatus, ReconnectionStatus } from "../types/network";
 
 interface NetworkConfig {
   host: string;
@@ -12,7 +12,11 @@ export const useNetworkStatus = () => {
     state: ConnectionState.Disconnected,
   });
   const [error, setError] = useState<string | null>(null);
+  const [clients, setClients] = useState<ClientInfo[]>([]);
+  const [slaveStatuses, setSlaveStatuses] = useState<SlaveStatus[]>([]);
+  const [reconnectionStatus, setReconnectionStatus] = useState<ReconnectionStatus | null>(null);
   const pollingIntervalRef = useRef<number | null>(null);
+  const reconnectionPollingRef = useRef<number | null>(null);
 
   const updateClientCount = useCallback(async () => {
     try {
@@ -28,6 +32,33 @@ export const useNetworkStatus = () => {
     }
   }, []);
 
+  const updateClientsInfo = useCallback(async () => {
+    try {
+      const clientsInfo = await invoke<ClientInfo[]>("get_connected_clients_info");
+      setClients(clientsInfo);
+    } catch (err) {
+      console.error("Failed to get connected clients info:", err);
+    }
+  }, []);
+
+  const updateSlaveStatuses = useCallback(async () => {
+    try {
+      const statuses = await invoke<SlaveStatus[]>("get_slave_statuses");
+      setSlaveStatuses(statuses);
+    } catch (err) {
+      console.error("Failed to get slave statuses:", err);
+    }
+  }, []);
+
+  const updateReconnectionStatus = useCallback(async () => {
+    try {
+      const status = await invoke<ReconnectionStatus | null>("get_slave_reconnection_status");
+      setReconnectionStatus(status);
+    } catch (err) {
+      console.error("Failed to get reconnection status:", err);
+    }
+  }, []);
+
   const startMasterServer = useCallback(async (port: number) => {
     try {
       setStatus({ state: ConnectionState.Connecting });
@@ -35,9 +66,15 @@ export const useNetworkStatus = () => {
       setStatus({ state: ConnectionState.Connected, connectedClients: 0 });
       setError(null);
       
-      // Start polling for client count
+      // Start polling for client count, info, and slave statuses
       updateClientCount();
-      pollingIntervalRef.current = window.setInterval(updateClientCount, 1000);
+      updateClientsInfo();
+      updateSlaveStatuses();
+      pollingIntervalRef.current = window.setInterval(() => {
+        updateClientCount();
+        updateClientsInfo();
+        updateSlaveStatuses();
+      }, 1000);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       setError(errorMessage);
@@ -73,6 +110,12 @@ export const useNetworkStatus = () => {
       await invoke("connect_to_master", { config });
       setStatus({ state: ConnectionState.Connected });
       setError(null);
+      
+      // Start polling for reconnection status
+      updateReconnectionStatus();
+      reconnectionPollingRef.current = window.setInterval(() => {
+        updateReconnectionStatus();
+      }, 1000);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       setError(errorMessage);
@@ -82,13 +125,20 @@ export const useNetworkStatus = () => {
       });
       throw err;
     }
-  }, []);
+  }, [updateReconnectionStatus]);
 
   const disconnectFromMaster = useCallback(async () => {
     try {
+      // Stop polling for reconnection status
+      if (reconnectionPollingRef.current !== null) {
+        clearInterval(reconnectionPollingRef.current);
+        reconnectionPollingRef.current = null;
+      }
+      
       await invoke("disconnect_from_master");
       setStatus({ state: ConnectionState.Disconnected });
       setError(null);
+      setReconnectionStatus(null);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       setError(errorMessage);
@@ -102,12 +152,18 @@ export const useNetworkStatus = () => {
       if (pollingIntervalRef.current !== null) {
         clearInterval(pollingIntervalRef.current);
       }
+      if (reconnectionPollingRef.current !== null) {
+        clearInterval(reconnectionPollingRef.current);
+      }
     };
   }, []);
 
   return {
     status,
     error,
+    clients,
+    slaveStatuses,
+    reconnectionStatus,
     startMasterServer,
     stopMasterServer,
     connectToMaster,
