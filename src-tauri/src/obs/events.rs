@@ -14,17 +14,16 @@ pub enum OBSEvent {
         scene_name: String,
         scene_item_id: i64,
     },
-    SourceCreated {
-        source_name: String,
-    },
-    SourceDestroyed {
-        source_name: String,
-    },
     InputSettingsChanged {
         input_name: String,
     },
     CurrentPreviewSceneChanged {
         scene_name: String,
+    },
+    SceneItemFilterChanged {
+        scene_name: String,
+        scene_item_id: i64,
+        filter_name: String,
     },
 }
 
@@ -76,6 +75,14 @@ impl OBSEventHandler {
                             eprintln!("Failed to send SceneItemTransformChanged event: {}", e);
                             break;
                         }
+                    }
+                    // Note: SourceFilterSettingsChanged is not available in obws 0.11
+                    // Filter changes will need to be detected through polling or manual triggers
+                    // For now, we skip filter change events as they're not properly supported in this obws version
+                    Event::SourceFilterNameChanged { .. } => {
+                        // Filter name changed - we could potentially handle this, but settings changes
+                        // are not directly available as events in obws 0.11
+                        // TODO: Implement filter change detection via polling or upgrade obws version
                     }
                     _ => {
                         // Ignore other events

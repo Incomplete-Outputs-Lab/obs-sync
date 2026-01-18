@@ -8,10 +8,9 @@ use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, RwLock};
 use tokio::task::JoinHandle;
-use tokio_tungstenite::{accept_async, tungstenite::Message, WebSocketStream};
+use tokio_tungstenite::{accept_async, tungstenite::Message};
 
 type ClientId = String;
-type ClientConnection = WebSocketStream<TcpStream>;
 
 type InitialStateCallback = Arc<
     dyn Fn(ClientId) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>
@@ -88,7 +87,11 @@ impl MasterServer {
         println!("Master server stopped");
     }
 
-    pub async fn start(&self, mut sync_rx: mpsc::UnboundedReceiver<SyncMessage>) -> Result<()> {
+    pub async fn start(
+        &self,
+        mut sync_rx: mpsc::UnboundedReceiver<SyncMessage>,
+        performance_monitor: Option<Arc<crate::commands::PerformanceMonitor>>,
+    ) -> Result<()> {
         let addr = format!("0.0.0.0:{}", self.port);
         let listener = TcpListener::bind(&addr)
             .await
@@ -113,6 +116,18 @@ impl MasterServer {
                         continue;
                     }
                 };
+
+                // Record performance metric (send time)
+                if let Some(ref monitor) = performance_monitor {
+                    let message_type_str = format!("{:?}", message.message_type);
+                    let metric = crate::commands::SyncMetric {
+                        timestamp: message.timestamp,
+                        message_type: message_type_str,
+                        latency_ms: 0.0, // Latency is calculated on slave side
+                        message_size_bytes: json.len(),
+                    };
+                    monitor.record_metric(metric).await;
+                }
 
                 let clients_lock = clients.read().await;
                 for (client_id, tx) in clients_lock.iter() {

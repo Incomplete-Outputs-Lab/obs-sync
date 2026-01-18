@@ -123,6 +123,117 @@ impl MasterSync {
                             });
                         }
                     }
+                    OBSEvent::SceneItemFilterChanged {
+                        scene_name,
+                        scene_item_id,
+                        filter_name,
+                    } => {
+                        if targets.contains(&SyncTargetType::Source) {
+                            // Get filter settings and send update
+                            let obs_client_clone = obs_client.clone();
+                            let message_tx_clone = message_tx.clone();
+                            let scene_name_clone = scene_name.clone();
+                            let filter_name_clone = filter_name.clone();
+
+                            tokio::spawn(async move {
+                                let client_arc = obs_client_clone.get_client_arc();
+                                let client_lock = client_arc.read().await;
+
+                                if let Some(client) = client_lock.as_ref() {
+                                    let (resolved_scene_name, resolved_scene_item_id, source_name) = 
+                                        if !scene_name_clone.is_empty() && scene_item_id > 0 {
+                                            // scene_name and scene_item_id are already provided
+                                            // Get scene items to find source name
+                                            match client.scene_items().list(&scene_name_clone).await {
+                                                Ok(items) => {
+                                                    if let Some(item) = items.iter().find(|i| {
+                                                        i.id as i64 == scene_item_id
+                                                    }) {
+                                                        (Some(scene_name_clone.clone()), Some(scene_item_id), Some(item.source_name.clone()))
+                                                    } else {
+                                                        (None, None, None)
+                                                    }
+                                                }
+                                                Err(e) => {
+                                                    eprintln!("Failed to get scene items for {}: {}", scene_name_clone, e);
+                                                    (None, None, None)
+                                                }
+                                            }
+                                        } else {
+                                            // Need to search all scenes to find the source
+                                            match client.scenes().list().await {
+                                                Ok(scenes) => {
+                                                    let mut found = None;
+                                                    'outer: for scene in scenes.scenes {
+                                                        match client.scene_items().list(&scene.name).await {
+                                                            Ok(items) => {
+                                                                for item in items {
+                                                                    // Check if this source has the filter
+                                            match client.filters().list(&item.source_name).await {
+                                                Ok(filters) => {
+                                                    if filters.iter().any(|f| f.name == filter_name_clone) {
+                                                        found = Some((scene.name.clone(), item.id as i64, item.source_name.clone()));
+                                                        break 'outer;
+                                                    }
+                                                }
+                                                Err(_) => continue,
+                                            }
+                                                                }
+                                                            }
+                                                            Err(_) => continue,
+                                                        }
+                                                    }
+                                                    if let Some((s, id, src)) = found {
+                                                        (Some(s), Some(id), Some(src))
+                                                    } else {
+                                                        (None, None, None)
+                                                    }
+                                                }
+                                                Err(e) => {
+                                                    eprintln!("Failed to get scenes list for filter resolution: {}", e);
+                                                    (None, None, None)
+                                                }
+                                            }
+                                        };
+
+                                    if let (Some(scene), Some(item_id), Some(source)) = (resolved_scene_name, resolved_scene_item_id, source_name) {
+                                        // Get filter settings
+                                        match client.filters().list(&source).await {
+                                            Ok(filters) => {
+                                                if let Some(filter) = filters.iter().find(|f| f.name == filter_name_clone) {
+                                                    let payload = serde_json::json!({
+                                                        "scene_name": scene,
+                                                        "scene_item_id": item_id,
+                                                        "source_name": source,
+                                                        "filter_name": filter_name_clone,
+                                                        "filter_settings": filter.settings
+                                                    });
+
+                                                let msg = SyncMessage::new(
+                                                    SyncMessageType::FilterUpdate,
+                                                    SyncTargetType::Source,
+                                                    payload,
+                                                );
+                                                    let _ = message_tx_clone.send(msg);
+                                                    println!(
+                                                        "Sent filter update for {} on source {} in scene {} (item: {})",
+                                                        filter_name_clone, source, scene, item_id
+                                                    );
+                                                } else {
+                                                    eprintln!("Filter {} not found on source {}", filter_name_clone, source);
+                                                }
+                                            }
+                                            Err(e) => {
+                                                eprintln!("Failed to get filter list for {}: {}", source, e);
+                                            }
+                                        }
+                                    } else {
+                                        eprintln!("Could not resolve scene_name/scene_item_id for filter {} on source", filter_name_clone);
+                                    }
+                                }
+                            });
+                        }
+                    }
                     OBSEvent::InputSettingsChanged { input_name } => {
                         if targets.contains(&SyncTargetType::Source) {
                             let obs_client_clone = obs_client.clone();
@@ -135,7 +246,7 @@ impl MasterSync {
                                 let client_lock = client_arc.read().await;
 
                                 if let Some(client) = client_lock.as_ref() {
-                                    // Get input settings
+                                    // Get input settings first to check if it's an image source
                                     match client
                                         .inputs()
                                         .settings::<serde_json::Value>(&input_name_clone)
@@ -147,6 +258,20 @@ impl MasterSync {
                                                 .get("file")
                                                 .and_then(|v| v.as_str())
                                                 .unwrap_or("");
+
+                                            // Only process if it has a file path (likely an image source)
+                                            if file_path.is_empty() {
+                                                println!(
+                                                    "Skipping InputSettingsChanged for {} - no file path found",
+                                                    input_name_clone
+                                                );
+                                                return;
+                                            }
+
+                                            println!(
+                                                "Processing InputSettingsChanged for {} (file: {})",
+                                                input_name_clone, file_path
+                                            );
 
                                             // Read and encode image if file path exists
                                             let image_data = if !file_path.is_empty() {
@@ -194,15 +319,9 @@ impl MasterSync {
                             });
                         }
                     }
-                    _ => {}
                 }
             }
         });
-    }
-
-    pub fn send_heartbeat(&self) -> Result<()> {
-        self.message_tx.send(SyncMessage::heartbeat())?;
-        Ok(())
     }
 
     /// Read image file and encode to base64
@@ -343,12 +462,33 @@ impl MasterSync {
                                 None
                             };
 
+                            // Get filters for this source
+                            let mut filters_data = Vec::new();
+                            match client.filters().list(&item.source_name).await {
+                                Ok(filters) => {
+                                    for filter in filters {
+                                        filters_data.push(serde_json::json!({
+                                            "name": filter.name,
+                                            "enabled": filter.enabled,
+                                            "settings": filter.settings
+                                        }));
+                                    }
+                                }
+                                Err(e) => {
+                                    eprintln!(
+                                        "Failed to get filters for source {}: {}",
+                                        item.source_name, e
+                                    );
+                                }
+                            }
+
                             scene_items_data.push(serde_json::json!({
                                 "source_name": item.source_name,
                                 "scene_item_id": item.id,
                                 "source_type": source_type,
                                 "transform": transform,
                                 "image_data": image_data,
+                                "filters": filters_data,
                             }));
                         }
 

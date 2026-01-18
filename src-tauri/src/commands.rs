@@ -9,7 +9,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Instant;
 use tauri::{Emitter, Manager, State};
 use tokio::fs;
 use tokio::sync::{mpsc, Mutex, RwLock};
@@ -196,41 +195,25 @@ pub struct PerformanceMetrics {
 
 pub struct PerformanceMonitor {
     metrics: Arc<RwLock<VecDeque<SyncMetric>>>,
-    max_metrics: usize,
-    send_times: Arc<RwLock<std::collections::HashMap<String, Instant>>>,
 }
 
 impl PerformanceMonitor {
     pub fn new(max_metrics: usize) -> Self {
         Self {
             metrics: Arc::new(RwLock::new(VecDeque::with_capacity(max_metrics))),
-            max_metrics,
-            send_times: Arc::new(RwLock::new(std::collections::HashMap::new())),
         }
     }
 
-    pub async fn record_send(&self, message_id: String, _message_type: String, _size: usize) {
-        let mut send_times = self.send_times.write().await;
-        send_times.insert(message_id, Instant::now());
-    }
-
-    pub async fn record_receive(&self, message_id: String, message_type: String, size: usize) {
-        let mut send_times = self.send_times.write().await;
-        if let Some(send_time) = send_times.remove(&message_id) {
-            let latency = send_time.elapsed().as_secs_f64() * 1000.0; // Convert to milliseconds
-
-            let metric = SyncMetric {
-                timestamp: chrono::Utc::now().timestamp_millis(),
-                message_type,
-                latency_ms: latency,
-                message_size_bytes: size,
-            };
-
-            let mut metrics = self.metrics.write().await;
-            if metrics.len() >= self.max_metrics {
-                metrics.pop_front();
-            }
-            metrics.push_back(metric);
+    pub async fn record_metric(&self, metric: SyncMetric) {
+        let mut metrics = self.metrics.write().await;
+        
+        // Add new metric
+        metrics.push_back(metric);
+        
+        // Keep only the last max_metrics entries
+        let max_capacity = metrics.capacity();
+        while metrics.len() > max_capacity {
+            metrics.pop_front();
         }
     }
 
@@ -392,8 +375,9 @@ pub async fn start_master_server(state: State<'_, AppState>, port: u16) -> Resul
         })
         .await;
 
+    let performance_monitor = Some(state.performance_monitor.clone());
     master_server
-        .start(sync_rx)
+        .start(sync_rx, performance_monitor)
         .await
         .map_err(|e| format!("Failed to start master server: {}", e))?;
     *state.master_server.write().await = Some(master_server);
@@ -474,6 +458,7 @@ pub async fn connect_to_master(
 
     // Start processing sync messages
     let slave_sync_for_processing = slave_sync.clone();
+    let performance_monitor_for_processing = state.performance_monitor.clone();
     tokio::spawn(async move {
         let mut rx = sync_rx;
         let mut first_message = true;
@@ -483,6 +468,30 @@ pub async fn connect_to_master(
                 println!("Waiting for initial state from master...");
                 first_message = false;
             }
+
+            // Calculate latency and record metric
+            let receive_time = chrono::Utc::now().timestamp_millis();
+            let latency_ms = if message.timestamp > 0 {
+                (receive_time - message.timestamp) as f64
+            } else {
+                0.0
+            };
+
+            // Calculate message size
+            let message_size_bytes = match serde_json::to_string(&message) {
+                Ok(json) => json.len(),
+                Err(_) => 0,
+            };
+
+            // Record metric
+            let message_type_str = format!("{:?}", message.message_type);
+            let metric = SyncMetric {
+                timestamp: receive_time,
+                message_type: message_type_str,
+                latency_ms,
+                message_size_bytes,
+            };
+            performance_monitor_for_processing.record_metric(metric).await;
 
             if let Err(e) = slave_sync_for_processing.apply_sync_message(message).await {
                 eprintln!("Failed to apply sync message: {}", e);

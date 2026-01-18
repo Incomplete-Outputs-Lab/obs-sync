@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { useNetworkStatus } from "../hooks/useNetworkStatus";
+import { useNetworkStatus, PerformanceMetrics } from "../hooks/useNetworkStatus";
 import { ConnectionState } from "../types/network";
 import { parseErrorMessage } from "../utils/errorMessages";
 
@@ -8,7 +8,7 @@ export const MasterControl = () => {
   const [port, setPort] = useState(8080);
   const [isStarting, setIsStarting] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
-  const { status, clients, slaveStatuses, startMasterServer, stopMasterServer } = useNetworkStatus();
+  const { status, clients, slaveStatuses, performanceMetrics, startMasterServer, stopMasterServer } = useNetworkStatus();
 
   const handleStart = async () => {
     setIsStarting(true);
@@ -141,6 +141,36 @@ export const MasterControl = () => {
               <code className="status-code">ws://&lt;your-ip&gt;:{port}</code>
             </div>
           </div>
+
+          {performanceMetrics && (
+            <div className="metrics-panel">
+              <h5 className="metrics-title">📊 パフォーマンスメトリクス</h5>
+              <div className="metrics-grid">
+                <div className="metric-item">
+                  <span className="metric-label">平均レイテンシー:</span>
+                  <span className="metric-value">
+                    {performanceMetrics.averageLatencyMs.toFixed(2)} ms
+                  </span>
+                </div>
+                <div className="metric-item">
+                  <span className="metric-label">総メッセージ数:</span>
+                  <span className="metric-value">{performanceMetrics.totalMessages}</span>
+                </div>
+                <div className="metric-item">
+                  <span className="metric-label">メッセージ/秒:</span>
+                  <span className="metric-value">
+                    {performanceMetrics.messagesPerSecond.toFixed(2)}
+                  </span>
+                </div>
+                <div className="metric-item">
+                  <span className="metric-label">総転送バイト数:</span>
+                  <span className="metric-value">
+                    {(performanceMetrics.totalBytes / 1024).toFixed(2)} KB
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
           
           <div className="resync-actions">
             <button 
@@ -616,6 +646,48 @@ export const MasterControl = () => {
           border-top: 1px solid var(--border-color);
           display: flex;
           justify-content: flex-end;
+        }
+
+        .metrics-panel {
+          margin-top: 1rem;
+          padding-top: 1rem;
+          border-top: 1px solid var(--border-color);
+        }
+
+        .metrics-title {
+          font-size: 1rem;
+          font-weight: 600;
+          color: var(--text-primary);
+          margin: 0 0 1rem 0;
+        }
+
+        .metrics-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+          gap: 0.75rem;
+        }
+
+        .metric-item {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 0.5rem;
+          background: var(--bg-color);
+          border: 1px solid var(--border-color);
+          border-radius: 0.5rem;
+        }
+
+        .metric-label {
+          font-size: 0.875rem;
+          color: var(--text-secondary);
+          font-weight: 500;
+        }
+
+        .metric-value {
+          font-size: 0.875rem;
+          font-weight: 600;
+          color: var(--primary-color);
+          font-family: 'Monaco', 'Courier New', monospace;
         }
       `}</style>
     </div>

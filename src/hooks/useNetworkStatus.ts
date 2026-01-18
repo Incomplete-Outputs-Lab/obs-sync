@@ -7,6 +7,19 @@ interface NetworkConfig {
   port: number;
 }
 
+export interface PerformanceMetrics {
+  averageLatencyMs: number;
+  totalMessages: number;
+  messagesPerSecond: number;
+  totalBytes: number;
+  recentMetrics: Array<{
+    timestamp: number;
+    messageType: string;
+    latencyMs: number;
+    messageSizeBytes: number;
+  }>;
+}
+
 export const useNetworkStatus = () => {
   const [status, setStatus] = useState<NetworkStatus>({
     state: ConnectionState.Disconnected,
@@ -15,8 +28,10 @@ export const useNetworkStatus = () => {
   const [clients, setClients] = useState<ClientInfo[]>([]);
   const [slaveStatuses, setSlaveStatuses] = useState<SlaveStatus[]>([]);
   const [reconnectionStatus, setReconnectionStatus] = useState<ReconnectionStatus | null>(null);
+  const [performanceMetrics, setPerformanceMetrics] = useState<PerformanceMetrics | null>(null);
   const pollingIntervalRef = useRef<number | null>(null);
   const reconnectionPollingRef = useRef<number | null>(null);
+  const metricsPollingRef = useRef<number | null>(null);
 
   const updateClientCount = useCallback(async () => {
     try {
@@ -59,6 +74,15 @@ export const useNetworkStatus = () => {
     }
   }, []);
 
+  const updatePerformanceMetrics = useCallback(async () => {
+    try {
+      const metrics = await invoke<PerformanceMetrics>("get_performance_metrics");
+      setPerformanceMetrics(metrics);
+    } catch (err) {
+      console.error("Failed to get performance metrics:", err);
+    }
+  }, []);
+
   const startMasterServer = useCallback(async (port: number) => {
     try {
       setStatus({ state: ConnectionState.Connecting });
@@ -66,15 +90,19 @@ export const useNetworkStatus = () => {
       setStatus({ state: ConnectionState.Connected, connectedClients: 0 });
       setError(null);
       
-      // Start polling for client count, info, and slave statuses
+      // Start polling for client count, info, slave statuses, and performance metrics
       updateClientCount();
       updateClientsInfo();
       updateSlaveStatuses();
+      updatePerformanceMetrics();
       pollingIntervalRef.current = window.setInterval(() => {
         updateClientCount();
         updateClientsInfo();
         updateSlaveStatuses();
       }, 1000);
+      metricsPollingRef.current = window.setInterval(() => {
+        updatePerformanceMetrics();
+      }, 2000); // Update metrics every 2 seconds
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       setError(errorMessage);
@@ -93,10 +121,15 @@ export const useNetworkStatus = () => {
         clearInterval(pollingIntervalRef.current);
         pollingIntervalRef.current = null;
       }
+      if (metricsPollingRef.current !== null) {
+        clearInterval(metricsPollingRef.current);
+        metricsPollingRef.current = null;
+      }
       
       await invoke("stop_master_server");
       setStatus({ state: ConnectionState.Disconnected });
       setError(null);
+      setPerformanceMetrics(null);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       setError(errorMessage);
@@ -111,11 +144,15 @@ export const useNetworkStatus = () => {
       setStatus({ state: ConnectionState.Connected });
       setError(null);
       
-      // Start polling for reconnection status
+      // Start polling for reconnection status and performance metrics
       updateReconnectionStatus();
+      updatePerformanceMetrics();
       reconnectionPollingRef.current = window.setInterval(() => {
         updateReconnectionStatus();
       }, 1000);
+      metricsPollingRef.current = window.setInterval(() => {
+        updatePerformanceMetrics();
+      }, 2000); // Update metrics every 2 seconds
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       setError(errorMessage);
@@ -129,16 +166,21 @@ export const useNetworkStatus = () => {
 
   const disconnectFromMaster = useCallback(async () => {
     try {
-      // Stop polling for reconnection status
+      // Stop polling for reconnection status and metrics
       if (reconnectionPollingRef.current !== null) {
         clearInterval(reconnectionPollingRef.current);
         reconnectionPollingRef.current = null;
+      }
+      if (metricsPollingRef.current !== null) {
+        clearInterval(metricsPollingRef.current);
+        metricsPollingRef.current = null;
       }
       
       await invoke("disconnect_from_master");
       setStatus({ state: ConnectionState.Disconnected });
       setError(null);
       setReconnectionStatus(null);
+      setPerformanceMetrics(null);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       setError(errorMessage);
@@ -155,6 +197,9 @@ export const useNetworkStatus = () => {
       if (reconnectionPollingRef.current !== null) {
         clearInterval(reconnectionPollingRef.current);
       }
+      if (metricsPollingRef.current !== null) {
+        clearInterval(metricsPollingRef.current);
+      }
     };
   }, []);
 
@@ -164,6 +209,7 @@ export const useNetworkStatus = () => {
     clients,
     slaveStatuses,
     reconnectionStatus,
+    performanceMetrics,
     startMasterServer,
     stopMasterServer,
     connectToMaster,

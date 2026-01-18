@@ -14,14 +14,12 @@ pub enum DiffCategory {
     SceneMismatch,
     SourceMissing,
     TransformMismatch,
-    SettingsMismatch,
 }
 
 #[derive(Debug, Clone)]
 pub enum DiffSeverity {
     Critical, // Scene doesn't match
     Warning,  // Transform or settings differ
-    Info,     // Minor differences
 }
 
 pub struct DiffDetector;
@@ -181,15 +179,5 @@ impl DiffDetector {
         } else {
             Some(diffs)
         }
-    }
-
-    pub fn is_synced(diffs: &[StateDifference]) -> bool {
-        diffs.is_empty()
-    }
-
-    pub fn has_critical_diffs(diffs: &[StateDifference]) -> bool {
-        diffs
-            .iter()
-            .any(|d| matches!(d.severity, DiffSeverity::Critical))
     }
 }

@@ -8,6 +8,7 @@ pub enum SyncMessageType {
     TransformUpdate,
     SceneChange,
     ImageUpdate,
+    FilterUpdate,
     Heartbeat,
     StateSync,
     StateSyncRequest, // Slave requests initial state from Master
@@ -39,14 +40,6 @@ impl SyncMessage {
             target_type,
             payload,
         }
-    }
-
-    pub fn heartbeat() -> Self {
-        Self::new(
-            SyncMessageType::Heartbeat,
-            SyncTargetType::Program,
-            Value::Object(serde_json::Map::new()),
-        )
     }
 
     pub fn state_sync_request() -> Self {

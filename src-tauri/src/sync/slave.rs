@@ -85,7 +85,7 @@ impl SlaveSync {
                 // Send state report to Master
                 {
                     let tx = state_report_tx.read().await;
-                    if let Some(ref sender) = tx.as_ref() {
+                    if let Some(sender) = tx.as_ref() {
                         let desync_details: Vec<serde_json::Value> = diffs
                             .iter()
                             .map(|diff| {
@@ -226,7 +226,7 @@ impl SlaveSync {
                     .as_str()
                     .context("Invalid scene_name in payload")?;
 
-                if let Err(e) = OBSCommands::set_current_program_scene(&client, scene_name).await {
+                if let Err(e) = OBSCommands::set_current_program_scene(client, scene_name).await {
                     self.send_alert(
                         scene_name.to_string(),
                         String::new(),
@@ -246,7 +246,7 @@ impl SlaveSync {
                 // Apply transform if included in payload
                 if let Some(transform) = message.payload["transform"].as_object() {
                     if let Err(e) = self
-                        .apply_transform(&client, scene_name, scene_item_id, transform)
+                        .apply_transform(client, scene_name, scene_item_id, transform)
                         .await
                     {
                         self.send_alert(
@@ -274,7 +274,7 @@ impl SlaveSync {
 
                 // Handle image update
                 if let Err(e) = self
-                    .handle_image_update(&client, source_name, file_path, image_data)
+                    .handle_image_update(client, source_name, file_path, image_data)
                     .await
                 {
                     self.send_alert(
@@ -283,6 +283,36 @@ impl SlaveSync {
                         format!("Failed to update image: {}", e),
                         AlertSeverity::Warning,
                     )?;
+                }
+            }
+            SyncMessageType::FilterUpdate => {
+                let source_name = message.payload["source_name"]
+                    .as_str()
+                    .context("Invalid source_name")?;
+                let filter_name = message.payload["filter_name"]
+                    .as_str()
+                    .context("Invalid filter_name")?;
+
+                // Get filter settings from payload
+                if let Some(filter_settings) = message.payload["filter_settings"].as_object() {
+                    if let Err(e) = self
+                        .apply_filter_settings(client, source_name, filter_name, filter_settings)
+                        .await
+                    {
+                        self.send_alert(
+                            String::new(),
+                            source_name.to_string(),
+                            format!("Failed to update filter {}: {}", filter_name, e),
+                            AlertSeverity::Warning,
+                        )?;
+                    } else {
+                        println!(
+                            "Applied filter update for {} on source {}",
+                            filter_name, source_name
+                        );
+                    }
+                } else {
+                    eprintln!("Filter settings missing in payload");
                 }
             }
             SyncMessageType::Heartbeat => {
@@ -312,7 +342,7 @@ impl SlaveSync {
                                 if let Some(transform) = item["transform"].as_object() {
                                     if let Err(e) = self
                                         .apply_transform(
-                                            &client,
+                                            client,
                                             scene_name,
                                             scene_item_id,
                                             transform,
@@ -334,7 +364,7 @@ impl SlaveSync {
                                     ) {
                                         if let Err(e) = self
                                             .handle_image_update(
-                                                &client,
+                                                client,
                                                 source_name,
                                                 file,
                                                 Some(data),
@@ -348,6 +378,47 @@ impl SlaveSync {
                                         }
                                     }
                                 }
+
+                                // Apply filters if available
+                                if let Some(filters) = item["filters"].as_array() {
+                                    for filter in filters {
+                                        let filter_name = filter["name"].as_str().unwrap_or("");
+                                        let filter_enabled = filter["enabled"].as_bool().unwrap_or(true);
+                                        if let Some(filter_settings) = filter["settings"].as_object() {
+                                            // Apply filter settings
+                                            if let Err(e) = self
+                                                .apply_filter_settings(
+                                                    client,
+                                                    source_name,
+                                                    filter_name,
+                                                    filter_settings,
+                                                )
+                                                .await
+                                            {
+                                                eprintln!(
+                                                    "Failed to apply filter {} for {}: {}",
+                                                    filter_name, source_name, e
+                                                );
+                                            } else {
+                                                // Set filter enabled state
+                                                if let Err(e) = client
+                                                    .filters()
+                                                    .set_enabled(obws::requests::filters::SetEnabled {
+                                                        source: source_name,
+                                                        filter: filter_name,
+                                                        enabled: filter_enabled,
+                                                    })
+                                                    .await
+                                                {
+                                                    eprintln!(
+                                                        "Failed to set filter {} enabled state for {}: {}",
+                                                        filter_name, source_name, e
+                                                    );
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -356,7 +427,7 @@ impl SlaveSync {
                 // Apply current program scene
                 if let Some(scene_name) = message.payload["current_program_scene"].as_str() {
                     if let Err(e) = crate::obs::commands::OBSCommands::set_current_program_scene(
-                        &client, scene_name,
+                        client, scene_name,
                     )
                     .await
                     {
@@ -578,6 +649,36 @@ impl SlaveSync {
             }
             _ => "png", // Default to PNG if format is unknown
         }
+    }
+
+    async fn apply_filter_settings(
+        &self,
+        client: &obws::Client,
+        source_name: &str,
+        filter_name: &str,
+        filter_settings: &serde_json::Map<String, serde_json::Value>,
+    ) -> Result<()> {
+        // Convert JSON map to Value for settings
+        let settings: serde_json::Value = serde_json::json!(filter_settings);
+
+        // Apply filter settings using OBS API
+        client
+            .filters()
+            .set_settings(obws::requests::filters::SetSettings {
+                source: source_name,
+                filter: filter_name,
+                settings: &settings,
+                overlay: Some(true),
+            })
+            .await
+            .context("Failed to set filter settings")?;
+
+        println!(
+            "Applied filter settings for {} on source {}",
+            filter_name, source_name
+        );
+
+        Ok(())
     }
 
     fn send_alert(

@@ -288,9 +288,6 @@ impl SlaveClient {
         Ok((rx, send_tx))
     }
 
-    pub async fn is_connected(&self) -> bool {
-        self.ws_stream.read().await.is_some()
-    }
 
     pub async fn disconnect(&self) {
         // Stop reconnection attempts
