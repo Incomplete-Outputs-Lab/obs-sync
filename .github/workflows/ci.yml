@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+      - development
+  push:
+    branches:
+      - main
+      - development
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: 'npm'
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Check Rust formatting
+        working-directory: src-tauri
+        run: cargo fmt -- --check
+
+      - name: Run Clippy
+        working-directory: src-tauri
+        run: cargo clippy -- -D warnings
+
+      - name: Build Rust code
+        working-directory: src-tauri
+        run: cargo build --release
+
+      - name: Run Rust tests
+        working-directory: src-tauri
+        run: cargo test
+
+      - name: Build frontend
+        run: npm run build
