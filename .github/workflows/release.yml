@@ -45,7 +45,24 @@ jobs:
         if: matrix.platform == 'ubuntu-latest'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libglib2.0-dev libffi-dev pkg-config
+          sudo apt-get install -y \
+            build-essential \
+            curl \
+            wget \
+            file \
+            pkg-config \
+            libglib2.0-dev \
+            libwebkit2gtk-4.1-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf
+          # Verify pkg-config can find required libraries
+          pkg-config --modversion glib-2.0 || echo "ERROR: glib-2.0 not found"
+          pkg-config --modversion gobject-2.0 || echo "ERROR: gobject-2.0 not found"
+          pkg-config --modversion gio-2.0 || echo "ERROR: gio-2.0 not found"
+          # List pkg-config search paths for debugging
+          pkg-config --variable pc_path pkg-config || echo "pkg-config path check failed"
 
       - name: Install frontend dependencies
         run: npm ci
