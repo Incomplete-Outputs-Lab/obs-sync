@@ -81,9 +81,10 @@ impl MasterSync {
                                 let client_lock = client_arc.read().await;
 
                                 if let Some(client) = client_lock.as_ref() {
+                                    let scene_id: obws::requests::scenes::SceneId = obws::requests::scenes::SceneId::Name(&scene_name_clone);
                                     match client
                                         .scene_items()
-                                        .transform(&scene_name_clone, scene_item_id)
+                                        .transform(scene_id, scene_item_id)
                                         .await
                                     {
                                         Ok(transform) => {
@@ -144,7 +145,7 @@ impl MasterSync {
                                         if !scene_name_clone.is_empty() && scene_item_id > 0 {
                                             // scene_name and scene_item_id are already provided
                                             // Get scene items to find source name
-                                            match client.scene_items().list(&scene_name_clone).await {
+                                            match client.scene_items().list(obws::requests::scenes::SceneId::Name(&scene_name_clone)).await {
                                                 Ok(items) => {
                                                     if let Some(item) = items.iter().find(|i| {
                                                         i.id as i64 == scene_item_id
@@ -165,14 +166,15 @@ impl MasterSync {
                                                 Ok(scenes) => {
                                                     let mut found = None;
                                                     'outer: for scene in scenes.scenes {
-                                                        match client.scene_items().list(&scene.name).await {
+                                                        let scene_id: obws::requests::scenes::SceneId = scene.id.clone().into();
+                                                        match client.scene_items().list(scene_id.clone()).await {
                                                             Ok(items) => {
                                                                 for item in items {
                                                                     // Check if this source has the filter
-                                            match client.filters().list(&item.source_name).await {
+                                            match client.filters().list(obws::requests::sources::SourceId::Name(&item.source_name)).await {
                                                 Ok(filters) => {
                                                     if filters.iter().any(|f| f.name == filter_name_clone) {
-                                                        found = Some((scene.name.clone(), item.id as i64, item.source_name.clone()));
+                                                        found = Some((format!("{:?}", scene.id), item.id as i64, item.source_name.clone()));
                                                         break 'outer;
                                                     }
                                                 }
@@ -198,7 +200,7 @@ impl MasterSync {
 
                                     if let (Some(scene), Some(item_id), Some(source)) = (resolved_scene_name, resolved_scene_item_id, source_name) {
                                         // Get filter settings
-                                        match client.filters().list(&source).await {
+                                        match client.filters().list(obws::requests::sources::SourceId::Name(&source)).await {
                                             Ok(filters) => {
                                                 if let Some(filter) = filters.iter().find(|f| f.name == filter_name_clone) {
                                                     let payload = serde_json::json!({
@@ -249,7 +251,7 @@ impl MasterSync {
                                     // Get input settings first to check if it's an image source
                                     match client
                                         .inputs()
-                                        .settings::<serde_json::Value>(&input_name_clone)
+                                        .settings::<serde_json::Value>(obws::requests::inputs::InputId::Name(&input_name_clone))
                                         .await
                                     {
                                         Ok(settings) => {
@@ -354,7 +356,7 @@ impl MasterSync {
             // Get input settings to find the file path
             match client
                 .inputs()
-                .settings::<serde_json::Value>(input_name)
+                .settings::<serde_json::Value>(obws::requests::inputs::InputId::Name(input_name))
                 .await
             {
                 Ok(settings) => {
@@ -412,9 +414,10 @@ impl MasterSync {
 
             // For each scene, get all items
             for scene in scenes_list.scenes {
-                println!("Processing scene: {}", scene.name);
+                let scene_id: obws::requests::scenes::SceneId = scene.id.clone().into();
+                println!("Processing scene: {:?}", scene.id);
 
-                match client.scene_items().list(&scene.name).await {
+                match client.scene_items().list(scene_id.clone()).await {
                     Ok(items) => {
                         let mut scene_items_data = Vec::new();
 
@@ -423,7 +426,7 @@ impl MasterSync {
 
                             // Get transform for this item
                             let transform =
-                                match client.scene_items().transform(&scene.name, item.id).await {
+                                match client.scene_items().transform(scene_id.clone(), item.id).await {
                                     Ok(t) => Some(serde_json::json!({
                                         "position_x": t.position_x,
                                         "position_y": t.position_y,
@@ -464,7 +467,7 @@ impl MasterSync {
 
                             // Get filters for this source
                             let mut filters_data = Vec::new();
-                            match client.filters().list(&item.source_name).await {
+                            match client.filters().list(obws::requests::sources::SourceId::Name(&item.source_name)).await {
                                 Ok(filters) => {
                                     for filter in filters {
                                         filters_data.push(serde_json::json!({
@@ -492,13 +495,15 @@ impl MasterSync {
                             }));
                         }
 
+                        // Use scene.id for name (SceneId doesn't implement Display)
+                        let scene_name = format!("{:?}", scene.id);
                         scenes_data.push(serde_json::json!({
-                            "name": scene.name,
+                            "name": scene_name.clone(),
                             "items": scene_items_data,
                         }));
                     }
                     Err(e) => {
-                        eprintln!("Failed to get items for scene {}: {}", scene.name, e);
+                        eprintln!("Failed to get items for scene {:?}: {}", scene.id, e);
                     }
                 }
             }

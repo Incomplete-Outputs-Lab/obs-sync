@@ -52,15 +52,17 @@ impl OBSEventHandler {
             tokio::pin!(events);
             while let Some(event) = events.next().await {
                 match event {
-                    Event::CurrentProgramSceneChanged { name } => {
-                        let obs_event = OBSEvent::SceneChanged { scene_name: name };
+                    Event::CurrentProgramSceneChanged { id } => {
+                        let scene_name = format!("{:?}", id);
+                        let obs_event = OBSEvent::SceneChanged { scene_name };
                         if let Err(e) = tx.send(obs_event) {
                             eprintln!("Failed to send SceneChanged event: {}", e);
                             break;
                         }
                     }
-                    Event::CurrentPreviewSceneChanged { name } => {
-                        let obs_event = OBSEvent::CurrentPreviewSceneChanged { scene_name: name };
+                    Event::CurrentPreviewSceneChanged { id } => {
+                        let scene_name = format!("{:?}", id);
+                        let obs_event = OBSEvent::CurrentPreviewSceneChanged { scene_name };
                         if let Err(e) = tx.send(obs_event) {
                             eprintln!("Failed to send CurrentPreviewSceneChanged event: {}", e);
                             break;
@@ -68,11 +70,21 @@ impl OBSEventHandler {
                     }
                     Event::SceneItemTransformChanged { scene, item_id, .. } => {
                         let obs_event = OBSEvent::SceneItemTransformChanged {
-                            scene_name: scene,
+                            scene_name: format!("{:?}", scene),
                             scene_item_id: item_id as i64,
                         };
                         if let Err(e) = tx.send(obs_event) {
                             eprintln!("Failed to send SceneItemTransformChanged event: {}", e);
+                            break;
+                        }
+                    }
+                    Event::InputSettingsChanged { id, .. } => {
+                        let input_name = format!("{:?}", id);
+                        let obs_event = OBSEvent::InputSettingsChanged {
+                            input_name,
+                        };
+                        if let Err(e) = tx.send(obs_event) {
+                            eprintln!("Failed to send InputSettingsChanged event: {}", e);
                             break;
                         }
                     }

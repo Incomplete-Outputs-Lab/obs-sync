@@ -652,7 +652,8 @@ pub async fn get_obs_sources(state: State<'_, AppState>) -> Result<Vec<serde_jso
             Ok(scenes) => {
                 for scene in scenes.scenes {
                     // Get scene items
-                    match client.scene_items().list(&scene.name).await {
+                    let scene_id: obws::requests::scenes::SceneId = scene.id.clone().into();
+                    match client.scene_items().list(scene_id).await {
                         Ok(items) => {
                             for item in items {
                                 // Store source info (avoid duplicates)
@@ -666,7 +667,7 @@ pub async fn get_obs_sources(state: State<'_, AppState>) -> Result<Vec<serde_jso
                             }
                         }
                         Err(e) => {
-                            eprintln!("Failed to get scene items for {}: {}", scene.name, e);
+                            eprintln!("Failed to get scene items for {:?}: {}", scene.id, e);
                         }
                     }
                 }

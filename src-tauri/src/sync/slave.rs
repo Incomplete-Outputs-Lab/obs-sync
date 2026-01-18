@@ -155,10 +155,15 @@ impl SlaveSync {
                 .await
                 .context("Failed to get current scene")?;
 
+            // Convert CurrentProgramScene to SceneId
+            // CurrentProgramScene has a scene_name field that can be converted to SceneId
+            let scene_name = format!("{:?}", current_scene);
+            let scene_id: obws::requests::scenes::SceneId = scene_name.as_str().into();
+
             // Get sources in current scene
             let items = client
                 .scene_items()
-                .list(&current_scene)
+                .list(scene_id.clone())
                 .await
                 .context("Failed to get scene items")?;
 
@@ -166,7 +171,7 @@ impl SlaveSync {
             for item in items {
                 let transform = client
                     .scene_items()
-                    .transform(&current_scene, item.id)
+                    .transform(scene_id.clone(), item.id)
                     .await
                     .ok();
 
@@ -183,7 +188,7 @@ impl SlaveSync {
             }
 
             Ok(serde_json::json!({
-                "current_scene": current_scene,
+                "current_scene": format!("{:?}", current_scene),
                 "sources": sources,
             }))
         } else {
@@ -404,7 +409,7 @@ impl SlaveSync {
                                                 if let Err(e) = client
                                                     .filters()
                                                     .set_enabled(obws::requests::filters::SetEnabled {
-                                                        source: source_name,
+                                                        source: obws::requests::sources::SourceId::Name(source_name),
                                                         filter: filter_name,
                                                         enabled: filter_enabled,
                                                     })
@@ -481,10 +486,13 @@ impl SlaveSync {
         scene_item_id: i64,
         transform: &serde_json::Map<String, serde_json::Value>,
     ) -> Result<()> {
+        // Convert scene_name to SceneId
+        let scene_id: obws::requests::scenes::SceneId = scene_name.into();
+        
         // Get current transform to preserve values not in the update
         let current_transform = match client
             .scene_items()
-            .transform(scene_name, scene_item_id)
+            .transform(scene_id.clone(), scene_item_id)
             .await
         {
             Ok(t) => t,
@@ -535,7 +543,7 @@ impl SlaveSync {
         // Apply the transform using SetTransform
         use obws::requests::scene_items::SetTransform;
         let set_transform = SetTransform {
-            scene: scene_name,
+            scene: scene_id,
             item_id: scene_item_id,
             transform: new_transform.into(),
         };
@@ -557,7 +565,7 @@ impl SlaveSync {
         &self,
         client: &obws::Client,
         source_name: &str,
-        _original_file_path: &str,
+        original_file_path: &str,
         image_data: Option<&str>,
     ) -> Result<()> {
         if let Some(encoded_data) = image_data {
@@ -570,8 +578,16 @@ impl SlaveSync {
 
             println!("Decoded {} bytes of image data", decoded_data.len());
 
-            // Detect image format from magic bytes
-            let file_extension = Self::detect_image_format(&decoded_data);
+            // Extract file extension from original file path
+            // Fall back to magic bytes detection if extension cannot be determined
+            let file_extension = if !original_file_path.is_empty() {
+                std::path::Path::new(original_file_path)
+                    .extension()
+                    .and_then(|ext| ext.to_str())
+                    .unwrap_or_else(|| Self::detect_image_format(&decoded_data))
+            } else {
+                Self::detect_image_format(&decoded_data)
+            };
 
             // Create temp directory for synced images
             let temp_dir = std::env::temp_dir().join("obs-sync");
@@ -579,13 +595,28 @@ impl SlaveSync {
                 .await
                 .context("Failed to create temp directory")?;
 
-            // Generate unique filename
-            let temp_file_path = temp_dir.join(format!(
-                "{}_{}.{}",
-                source_name.replace("/", "_").replace("\\", "_"),
-                chrono::Utc::now().timestamp_millis(),
-                file_extension
-            ));
+            // Generate unique filename using original file name if available
+            let temp_file_path = if !original_file_path.is_empty() {
+                // Extract file name (without path) from original path
+                let original_file_name = std::path::Path::new(original_file_path)
+                    .file_stem()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or(source_name);
+                
+                temp_dir.join(format!(
+                    "{}_{}.{}",
+                    original_file_name.replace("/", "_").replace("\\", "_"),
+                    chrono::Utc::now().timestamp_millis(),
+                    file_extension
+                ))
+            } else {
+                temp_dir.join(format!(
+                    "{}_{}.{}",
+                    source_name.replace("/", "_").replace("\\", "_"),
+                    chrono::Utc::now().timestamp_millis(),
+                    file_extension
+                ))
+            };
 
             println!("Saving image to: {:?}", temp_file_path);
 
@@ -606,7 +637,7 @@ impl SlaveSync {
             match client
                 .inputs()
                 .set_settings(obws::requests::inputs::SetSettings {
-                    input: source_name,
+                    input: obws::requests::inputs::InputId::Name(source_name),
                     settings: &settings,
                     overlay: Some(true),
                 })
@@ -665,7 +696,7 @@ impl SlaveSync {
         client
             .filters()
             .set_settings(obws::requests::filters::SetSettings {
-                source: source_name,
+                source: obws::requests::sources::SourceId::Name(source_name),
                 filter: filter_name,
                 settings: &settings,
                 overlay: Some(true),

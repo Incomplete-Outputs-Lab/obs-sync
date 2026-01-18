@@ -14,9 +14,11 @@ import { SlaveMonitor } from "./components/SlaveMonitor";
 import { SyncTargetSelector } from "./components/SyncTargetSelector";
 import { AlertPanel } from "./components/AlertPanel";
 import { OBSSourceList } from "./components/OBSSourceList";
+import { SplashScreen } from "./components/SplashScreen";
 import { AppMode } from "./types/sync";
 
 function App() {
+  const [showSplash, setShowSplash] = useState(true);
   const [appMode, setAppMode] = useState<AppMode | null>(null);
   const [obsHost, setObsHost] = useState("localhost");
   const [obsPort, setObsPort] = useState(4455);
@@ -127,6 +129,9 @@ function App() {
 
   return (
     <div className="app">
+      {showSplash && (
+        <SplashScreen onComplete={() => setShowSplash(false)} />
+      )}
       <ToastContainer 
         position="top-right" 
         autoClose={3000}
@@ -375,7 +380,7 @@ function App() {
       </main>
 
       <footer className="app-footer">
-        <p>© 2024 OBS Sync - イベント向けOBS同期システム</p>
+        <p>© 2026 OBS Sync - イベント向けOBS同期システム</p>
       </footer>
     </div>
   );
