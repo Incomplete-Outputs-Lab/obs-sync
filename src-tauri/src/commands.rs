@@ -206,10 +206,10 @@ impl PerformanceMonitor {
 
     pub async fn record_metric(&self, metric: SyncMetric) {
         let mut metrics = self.metrics.write().await;
-        
+
         // Add new metric
         metrics.push_back(metric);
-        
+
         // Keep only the last max_metrics entries
         let max_capacity = metrics.capacity();
         while metrics.len() > max_capacity {
@@ -491,7 +491,9 @@ pub async fn connect_to_master(
                 latency_ms,
                 message_size_bytes,
             };
-            performance_monitor_for_processing.record_metric(metric).await;
+            performance_monitor_for_processing
+                .record_metric(metric)
+                .await;
 
             if let Err(e) = slave_sync_for_processing.apply_sync_message(message).await {
                 eprintln!("Failed to apply sync message: {}", e);

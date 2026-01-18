@@ -80,9 +80,7 @@ impl OBSEventHandler {
                     }
                     Event::InputSettingsChanged { id, .. } => {
                         let input_name = format!("{:?}", id);
-                        let obs_event = OBSEvent::InputSettingsChanged {
-                            input_name,
-                        };
+                        let obs_event = OBSEvent::InputSettingsChanged { input_name };
                         if let Err(e) = tx.send(obs_event) {
                             eprintln!("Failed to send InputSettingsChanged event: {}", e);
                             break;

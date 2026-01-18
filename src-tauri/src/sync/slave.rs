@@ -388,8 +388,11 @@ impl SlaveSync {
                                 if let Some(filters) = item["filters"].as_array() {
                                     for filter in filters {
                                         let filter_name = filter["name"].as_str().unwrap_or("");
-                                        let filter_enabled = filter["enabled"].as_bool().unwrap_or(true);
-                                        if let Some(filter_settings) = filter["settings"].as_object() {
+                                        let filter_enabled =
+                                            filter["enabled"].as_bool().unwrap_or(true);
+                                        if let Some(filter_settings) =
+                                            filter["settings"].as_object()
+                                        {
                                             // Apply filter settings
                                             if let Err(e) = self
                                                 .apply_filter_settings(
@@ -488,7 +491,7 @@ impl SlaveSync {
     ) -> Result<()> {
         // Convert scene_name to SceneId
         let scene_id: obws::requests::scenes::SceneId = scene_name.into();
-        
+
         // Get current transform to preserve values not in the update
         let current_transform = match client
             .scene_items()
@@ -602,7 +605,7 @@ impl SlaveSync {
                     .file_stem()
                     .and_then(|name| name.to_str())
                     .unwrap_or(source_name);
-                
+
                 temp_dir.join(format!(
                     "{}_{}.{}",
                     original_file_name.replace("/", "_").replace("\\", "_"),

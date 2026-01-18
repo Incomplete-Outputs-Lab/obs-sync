@@ -288,7 +288,6 @@ impl SlaveClient {
         Ok((rx, send_tx))
     }
 
-
     pub async fn disconnect(&self) {
         // Stop reconnection attempts
         self.should_reconnect.store(false, Ordering::SeqCst);

@@ -81,7 +81,8 @@ impl MasterSync {
                                 let client_lock = client_arc.read().await;
 
                                 if let Some(client) = client_lock.as_ref() {
-                                    let scene_id: obws::requests::scenes::SceneId = obws::requests::scenes::SceneId::Name(&scene_name_clone);
+                                    let scene_id: obws::requests::scenes::SceneId =
+                                        obws::requests::scenes::SceneId::Name(&scene_name_clone);
                                     match client
                                         .scene_items()
                                         .transform(scene_id, scene_item_id)
@@ -141,22 +142,36 @@ impl MasterSync {
                                 let client_lock = client_arc.read().await;
 
                                 if let Some(client) = client_lock.as_ref() {
-                                    let (resolved_scene_name, resolved_scene_item_id, source_name) = 
+                                    let (resolved_scene_name, resolved_scene_item_id, source_name) =
                                         if !scene_name_clone.is_empty() && scene_item_id > 0 {
                                             // scene_name and scene_item_id are already provided
                                             // Get scene items to find source name
-                                            match client.scene_items().list(obws::requests::scenes::SceneId::Name(&scene_name_clone)).await {
+                                            match client
+                                                .scene_items()
+                                                .list(obws::requests::scenes::SceneId::Name(
+                                                    &scene_name_clone,
+                                                ))
+                                                .await
+                                            {
                                                 Ok(items) => {
-                                                    if let Some(item) = items.iter().find(|i| {
-                                                        i.id as i64 == scene_item_id
-                                                    }) {
-                                                        (Some(scene_name_clone.clone()), Some(scene_item_id), Some(item.source_name.clone()))
+                                                    if let Some(item) = items
+                                                        .iter()
+                                                        .find(|i| i.id as i64 == scene_item_id)
+                                                    {
+                                                        (
+                                                            Some(scene_name_clone.clone()),
+                                                            Some(scene_item_id),
+                                                            Some(item.source_name.clone()),
+                                                        )
                                                     } else {
                                                         (None, None, None)
                                                     }
                                                 }
                                                 Err(e) => {
-                                                    eprintln!("Failed to get scene items for {}: {}", scene_name_clone, e);
+                                                    eprintln!(
+                                                        "Failed to get scene items for {}: {}",
+                                                        scene_name_clone, e
+                                                    );
                                                     (None, None, None)
                                                 }
                                             }
@@ -167,11 +182,15 @@ impl MasterSync {
                                                     let mut found = None;
                                                     'outer: for scene in scenes.scenes {
                                                         let scene_id: obws::requests::scenes::SceneId = scene.id.clone().into();
-                                                        match client.scene_items().list(scene_id.clone()).await {
+                                                        match client
+                                                            .scene_items()
+                                                            .list(scene_id.clone())
+                                                            .await
+                                                        {
                                                             Ok(items) => {
                                                                 for item in items {
                                                                     // Check if this source has the filter
-                                            match client.filters().list(obws::requests::sources::SourceId::Name(&item.source_name)).await {
+                                                                    match client.filters().list(obws::requests::sources::SourceId::Name(&item.source_name)).await {
                                                 Ok(filters) => {
                                                     if filters.iter().any(|f| f.name == filter_name_clone) {
                                                         found = Some((format!("{:?}", scene.id), item.id as i64, item.source_name.clone()));
@@ -198,11 +217,20 @@ impl MasterSync {
                                             }
                                         };
 
-                                    if let (Some(scene), Some(item_id), Some(source)) = (resolved_scene_name, resolved_scene_item_id, source_name) {
+                                    if let (Some(scene), Some(item_id), Some(source)) =
+                                        (resolved_scene_name, resolved_scene_item_id, source_name)
+                                    {
                                         // Get filter settings
-                                        match client.filters().list(obws::requests::sources::SourceId::Name(&source)).await {
+                                        match client
+                                            .filters()
+                                            .list(obws::requests::sources::SourceId::Name(&source))
+                                            .await
+                                        {
                                             Ok(filters) => {
-                                                if let Some(filter) = filters.iter().find(|f| f.name == filter_name_clone) {
+                                                if let Some(filter) = filters
+                                                    .iter()
+                                                    .find(|f| f.name == filter_name_clone)
+                                                {
                                                     let payload = serde_json::json!({
                                                         "scene_name": scene,
                                                         "scene_item_id": item_id,
@@ -211,22 +239,28 @@ impl MasterSync {
                                                         "filter_settings": filter.settings
                                                     });
 
-                                                let msg = SyncMessage::new(
-                                                    SyncMessageType::FilterUpdate,
-                                                    SyncTargetType::Source,
-                                                    payload,
-                                                );
+                                                    let msg = SyncMessage::new(
+                                                        SyncMessageType::FilterUpdate,
+                                                        SyncTargetType::Source,
+                                                        payload,
+                                                    );
                                                     let _ = message_tx_clone.send(msg);
                                                     println!(
                                                         "Sent filter update for {} on source {} in scene {} (item: {})",
                                                         filter_name_clone, source, scene, item_id
                                                     );
                                                 } else {
-                                                    eprintln!("Filter {} not found on source {}", filter_name_clone, source);
+                                                    eprintln!(
+                                                        "Filter {} not found on source {}",
+                                                        filter_name_clone, source
+                                                    );
                                                 }
                                             }
                                             Err(e) => {
-                                                eprintln!("Failed to get filter list for {}: {}", source, e);
+                                                eprintln!(
+                                                    "Failed to get filter list for {}: {}",
+                                                    source, e
+                                                );
                                             }
                                         }
                                     } else {
@@ -251,7 +285,11 @@ impl MasterSync {
                                     // Get input settings first to check if it's an image source
                                     match client
                                         .inputs()
-                                        .settings::<serde_json::Value>(obws::requests::inputs::InputId::Name(&input_name_clone))
+                                        .settings::<serde_json::Value>(
+                                            obws::requests::inputs::InputId::Name(
+                                                &input_name_clone,
+                                            ),
+                                        )
                                         .await
                                     {
                                         Ok(settings) => {
@@ -425,25 +463,28 @@ impl MasterSync {
                             println!("  - Item: {} (id: {})", item.source_name, item.id);
 
                             // Get transform for this item
-                            let transform =
-                                match client.scene_items().transform(scene_id.clone(), item.id).await {
-                                    Ok(t) => Some(serde_json::json!({
-                                        "position_x": t.position_x,
-                                        "position_y": t.position_y,
-                                        "rotation": t.rotation,
-                                        "scale_x": t.scale_x,
-                                        "scale_y": t.scale_y,
-                                        "width": t.width,
-                                        "height": t.height,
-                                    })),
-                                    Err(e) => {
-                                        eprintln!(
-                                            "Failed to get transform for {}: {}",
-                                            item.source_name, e
-                                        );
-                                        None
-                                    }
-                                };
+                            let transform = match client
+                                .scene_items()
+                                .transform(scene_id.clone(), item.id)
+                                .await
+                            {
+                                Ok(t) => Some(serde_json::json!({
+                                    "position_x": t.position_x,
+                                    "position_y": t.position_y,
+                                    "rotation": t.rotation,
+                                    "scale_x": t.scale_x,
+                                    "scale_y": t.scale_y,
+                                    "width": t.width,
+                                    "height": t.height,
+                                })),
+                                Err(e) => {
+                                    eprintln!(
+                                        "Failed to get transform for {}: {}",
+                                        item.source_name, e
+                                    );
+                                    None
+                                }
+                            };
 
                             // Get source type from item
                             let source_type = item
@@ -467,7 +508,11 @@ impl MasterSync {
 
                             // Get filters for this source
                             let mut filters_data = Vec::new();
-                            match client.filters().list(obws::requests::sources::SourceId::Name(&item.source_name)).await {
+                            match client
+                                .filters()
+                                .list(obws::requests::sources::SourceId::Name(&item.source_name))
+                                .await
+                            {
                                 Ok(filters) => {
                                     for filter in filters {
                                         filters_data.push(serde_json::json!({
