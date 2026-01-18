@@ -75,7 +75,6 @@ impl SlaveClient {
         mpsc::UnboundedReceiver<SyncMessage>,
         mpsc::UnboundedSender<SyncMessage>,
     )> {
-        let url = format!("ws://{}:{}", self.host, self.port);
         let (tx, rx) = mpsc::unbounded_channel::<SyncMessage>();
         let (send_tx, mut send_rx) = mpsc::unbounded_channel::<SyncMessage>();
 
@@ -195,7 +194,7 @@ impl SlaveClient {
                         }
                         current_attempt_for_task.store(0, Ordering::SeqCst);
 
-                        let (mut ws_sender, mut ws_receiver) = ws_stream.split();
+                        let (ws_sender, mut ws_receiver) = ws_stream.split();
                         let tx_clone = tx.clone();
 
                         // Store sync message sender for resync requests
