@@ -26,6 +26,11 @@ Slaveモードでは、受信した変更とローカルのOBS状態に差異が
 
 ## 技術スタック
 
+## ダウンロード
+
+- [最新リリース](https://github.com/FlowingSPDG/obs-sync/releases/latest)
+- [全リリース](https://github.com/FlowingSPDG/obs-sync/releases)
+
 ## 必要要件
 
 - Node.js LTS版

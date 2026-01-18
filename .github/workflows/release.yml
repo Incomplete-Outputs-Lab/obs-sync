@@ -58,9 +58,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: v__VERSION__
-          releaseName: 'OBS Sync v__VERSION__'
-          releaseBody: '🚀 Release version __VERSION__'
+          tagName: ${{ github.ref_name }}
+          releaseName: 'OBS Sync ${{ github.ref_name }}'
+          releaseBody: '🚀 Release version ${{ github.ref_name }}'
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
