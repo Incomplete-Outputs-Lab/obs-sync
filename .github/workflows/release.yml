@@ -61,8 +61,11 @@ jobs:
           pkg-config --modversion glib-2.0 || echo "ERROR: glib-2.0 not found"
           pkg-config --modversion gobject-2.0 || echo "ERROR: gobject-2.0 not found"
           pkg-config --modversion gio-2.0 || echo "ERROR: gio-2.0 not found"
-          # List pkg-config search paths for debugging
-          pkg-config --variable pc_path pkg-config || echo "pkg-config path check failed"
+
+      - name: Set PKG_CONFIG_PATH for Linux
+        if: matrix.platform == 'ubuntu-latest'
+        run: |
+          echo "PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig:${PKG_CONFIG_PATH}" >> $GITHUB_ENV
 
       - name: Install frontend dependencies
         run: npm ci
