@@ -52,6 +52,7 @@ impl SyncMessage {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct TransformUpdatePayload {
     pub scene_name: String,
     pub scene_item_id: i64,
@@ -59,6 +60,7 @@ pub struct TransformUpdatePayload {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct TransformData {
     pub position_x: f64,
     pub position_y: f64,
@@ -70,11 +72,13 @@ pub struct TransformData {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct SceneChangePayload {
     pub scene_name: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct ImageUpdatePayload {
     pub scene_name: String,
     pub source_name: String,
@@ -86,6 +90,7 @@ pub struct ImageUpdatePayload {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct StateSyncPayload {
     pub current_program_scene: String,
     pub current_preview_scene: Option<String>,
@@ -93,12 +98,14 @@ pub struct StateSyncPayload {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct SceneData {
     pub name: String,
     pub items: Vec<SceneItemData>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct SceneItemData {
     pub source_name: String,
     pub source_type: String,
