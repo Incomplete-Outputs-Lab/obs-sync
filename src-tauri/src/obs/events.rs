@@ -6,6 +6,7 @@ use tokio::sync::mpsc;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload")]
+#[allow(clippy::enum_variant_names)]
 pub enum OBSEvent {
     SceneChanged {
         scene_name: String,

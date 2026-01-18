@@ -163,17 +163,13 @@ impl SlaveSync {
             // Get sources in current scene
             let items = client
                 .scene_items()
-                .list(scene_id.clone())
+                .list(scene_id)
                 .await
                 .context("Failed to get scene items")?;
 
             let mut sources = Vec::new();
             for item in items {
-                let transform = client
-                    .scene_items()
-                    .transform(scene_id.clone(), item.id)
-                    .await
-                    .ok();
+                let transform = client.scene_items().transform(scene_id, item.id).await.ok();
 
                 sources.push(serde_json::json!({
                     "name": item.source_name,
@@ -495,7 +491,7 @@ impl SlaveSync {
         // Get current transform to preserve values not in the update
         let current_transform = match client
             .scene_items()
-            .transform(scene_id.clone(), scene_item_id)
+            .transform(scene_id, scene_item_id)
             .await
         {
             Ok(t) => t,
