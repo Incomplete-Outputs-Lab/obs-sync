@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { useNetworkStatus, PerformanceMetrics } from "../hooks/useNetworkStatus";
+import { useNetworkStatus } from "../hooks/useNetworkStatus";
 import { ConnectionState } from "../types/network";
 import { parseErrorMessage } from "../utils/errorMessages";
 
