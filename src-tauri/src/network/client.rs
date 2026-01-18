@@ -1,5 +1,5 @@
 use crate::sync::protocol::SyncMessage;
-use anyhow::{Context, Result};
+use anyhow::Result;
 use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -76,7 +76,7 @@ impl SlaveClient {
         mpsc::UnboundedSender<SyncMessage>,
     )> {
         let url = format!("ws://{}:{}", self.host, self.port);
-        let (tx, rx) = mpsc::unbounded_channel();
+        let (tx, rx) = mpsc::unbounded_channel::<SyncMessage>();
         let (send_tx, mut send_rx) = mpsc::unbounded_channel::<SyncMessage>();
 
         let host = self.host.clone();
@@ -198,12 +198,6 @@ impl SlaveClient {
                         let (mut ws_sender, mut ws_receiver) = ws_stream.split();
                         let tx_clone = tx.clone();
 
-                        // Store message sender for sending messages
-                        {
-                            let mut message_tx = message_tx_for_send.write().await;
-                            *message_tx = Some(tx_clone.clone());
-                        }
-
                         // Store sync message sender for resync requests
                         {
                             let mut sync_tx = sync_message_tx_for_store.write().await;
@@ -211,11 +205,13 @@ impl SlaveClient {
                         }
 
                         // Send ws_sender to sending task
-                        let _ = send_ready_tx.send(ws_sender.clone()).await;
+                        let _ = send_ready_tx.send(ws_sender);
 
                         // Handle incoming messages
                         let should_reconnect_clone = should_reconnect.clone();
                         let message_tx_for_cleanup = message_tx_for_send.clone();
+                        let sync_message_tx_for_cleanup = sync_message_tx_for_store.clone();
+                        let reconnection_status_for_incoming = reconnection_status_for_task.clone();
                         tokio::spawn(async move {
                             while let Some(msg) = ws_receiver.next().await {
                                 match msg {
@@ -231,9 +227,9 @@ impl SlaveClient {
                                             }
                                         }
                                     }
-                                    Ok(Message::Ping(data)) => {
-                                        // Send pong
-                                        let _ = ws_sender.send(Message::Pong(data)).await;
+                                    Ok(Message::Ping(_data)) => {
+                                        // Pong will be handled by the sending task via ws_sender
+                                        // This is handled automatically by tokio-tungstenite
                                     }
                                     Ok(Message::Close(_)) => {
                                         println!("Connection closed by master");
@@ -260,7 +256,7 @@ impl SlaveClient {
                             }
                             // Update status: connection lost, will reconnect
                             {
-                                let mut status = reconnection_status_for_task.write().await;
+                                let mut status = reconnection_status_for_incoming.write().await;
                                 status.is_reconnecting = true;
                                 status.attempt_count = 0;
                                 status.last_error = Some("Connection lost".to_string());

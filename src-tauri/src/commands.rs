@@ -9,8 +9,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
-use tauri::{Emitter, State};
+use std::time::Instant;
+use tauri::{Emitter, Manager, State};
 use tokio::fs;
 use tokio::sync::{mpsc, Mutex, RwLock};
 
@@ -107,13 +107,6 @@ async fn get_log_dir(state: &AppState) -> Result<PathBuf, String> {
     }
 }
 
-fn get_log_file_path(state: &AppState) -> Result<PathBuf, String> {
-    // This is a sync function, so we can't use async here
-    // We'll need to get the path differently or make this async
-    // For now, return a path that will be resolved async
-    Err("Use get_log_file_path_async instead".to_string())
-}
-
 async fn get_log_file_path_async(state: &AppState) -> Result<PathBuf, String> {
     let log_dir = get_log_dir(state).await?;
     let date = chrono::Utc::now().format("%Y-%m-%d");
@@ -171,7 +164,10 @@ pub async fn open_log_file(state: State<'_, AppState>) -> Result<(), String> {
     let app_handle = state.app_handle.read().await;
     if let Some(handle) = app_handle.as_ref() {
         // Use tauri-plugin-opener to open the file
-        tauri_plugin_opener::open(&log_path.to_string_lossy(), None, handle)
+        use tauri_plugin_opener::OpenerExt;
+        handle
+            .opener()
+            .open_path(log_path.to_string_lossy(), None::<&str>)
             .map_err(|e| format!("Failed to open log file: {}", e))?;
         Ok(())
     } else {
@@ -213,7 +209,7 @@ impl PerformanceMonitor {
         }
     }
 
-    pub async fn record_send(&self, message_id: String, message_type: String, size: usize) {
+    pub async fn record_send(&self, message_id: String, _message_type: String, _size: usize) {
         let mut send_times = self.send_times.write().await;
         send_times.insert(message_id, Instant::now());
     }
@@ -675,6 +671,13 @@ pub async fn get_obs_sources(state: State<'_, AppState>) -> Result<Vec<serde_jso
     } else {
         Err("OBS is not connected".to_string())
     }
+}
+
+#[tauri::command]
+pub async fn get_performance_metrics(
+    state: State<'_, AppState>,
+) -> Result<PerformanceMetrics, String> {
+    Ok(state.performance_monitor.get_metrics().await)
 }
 
 #[tauri::command]

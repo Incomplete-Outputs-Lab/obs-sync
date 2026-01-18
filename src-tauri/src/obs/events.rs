@@ -42,7 +42,7 @@ impl OBSEventHandler {
         let tx = self.event_tx.clone();
 
         // Get event stream from obws client
-        let mut events = client
+        let events = client
             .events()
             .map_err(|e| anyhow::anyhow!("Failed to get event stream: {}", e))?;
 
@@ -50,60 +50,38 @@ impl OBSEventHandler {
 
         // Spawn task to process events
         tokio::spawn(async move {
+            tokio::pin!(events);
             while let Some(event) = events.next().await {
                 match event {
-                    Event::CurrentProgramSceneChanged(data) => {
+                    Event::CurrentProgramSceneChanged { name } => {
                         let obs_event = OBSEvent::SceneChanged {
-                            scene_name: data.scene_name,
+                            scene_name: name,
                         };
                         if let Err(e) = tx.send(obs_event) {
                             eprintln!("Failed to send SceneChanged event: {}", e);
                             break;
                         }
                     }
-                    Event::CurrentPreviewSceneChanged(data) => {
+                    Event::CurrentPreviewSceneChanged { name } => {
                         let obs_event = OBSEvent::CurrentPreviewSceneChanged {
-                            scene_name: data.scene_name,
+                            scene_name: name,
                         };
                         if let Err(e) = tx.send(obs_event) {
                             eprintln!("Failed to send CurrentPreviewSceneChanged event: {}", e);
                             break;
                         }
                     }
-                    Event::SceneItemTransformChanged(data) => {
+                    Event::SceneItemTransformChanged {
+                        scene,
+                        item_id,
+                        ..
+                    } => {
                         let obs_event = OBSEvent::SceneItemTransformChanged {
-                            scene_name: data.scene_name,
-                            scene_item_id: data.scene_item_id,
+                            scene_name: scene,
+                            scene_item_id: item_id as i64,
                         };
                         if let Err(e) = tx.send(obs_event) {
                             eprintln!("Failed to send SceneItemTransformChanged event: {}", e);
-                            break;
-                        }
-                    }
-                    Event::InputSettingsChanged(data) => {
-                        let obs_event = OBSEvent::InputSettingsChanged {
-                            input_name: data.input_name,
-                        };
-                        if let Err(e) = tx.send(obs_event) {
-                            eprintln!("Failed to send InputSettingsChanged event: {}", e);
-                            break;
-                        }
-                    }
-                    Event::SourceCreated(data) => {
-                        let obs_event = OBSEvent::SourceCreated {
-                            source_name: data.source_name,
-                        };
-                        if let Err(e) = tx.send(obs_event) {
-                            eprintln!("Failed to send SourceCreated event: {}", e);
-                            break;
-                        }
-                    }
-                    Event::SourceDestroyed(data) => {
-                        let obs_event = OBSEvent::SourceDestroyed {
-                            source_name: data.source_name,
-                        };
-                        if let Err(e) = tx.send(obs_event) {
-                            eprintln!("Failed to send SourceDestroyed event: {}", e);
                             break;
                         }
                     }

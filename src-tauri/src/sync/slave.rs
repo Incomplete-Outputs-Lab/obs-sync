@@ -1,5 +1,5 @@
 use super::diff::{DiffDetector, DiffSeverity};
-use super::protocol::{SyncMessage, SyncMessageType};
+use super::protocol::{SyncMessage, SyncMessageType, SyncTargetType};
 use crate::obs::{commands::OBSCommands, OBSClient};
 use anyhow::{Context, Result};
 use std::sync::Arc;
@@ -426,45 +426,51 @@ impl SlaveSync {
             }
         };
 
-        // Extract values from JSON payload
+        // Extract values from JSON payload (convert to f32 to match SceneItemTransform)
         let position_x = transform
             .get("position_x")
             .and_then(|v| v.as_f64())
+            .map(|v| v as f32)
             .unwrap_or(current_transform.position_x);
         let position_y = transform
             .get("position_y")
             .and_then(|v| v.as_f64())
+            .map(|v| v as f32)
             .unwrap_or(current_transform.position_y);
         let scale_x = transform
             .get("scale_x")
             .and_then(|v| v.as_f64())
+            .map(|v| v as f32)
             .unwrap_or(current_transform.scale_x);
         let scale_y = transform
             .get("scale_y")
             .and_then(|v| v.as_f64())
+            .map(|v| v as f32)
             .unwrap_or(current_transform.scale_y);
         let rotation = transform
             .get("rotation")
             .and_then(|v| v.as_f64())
+            .map(|v| v as f32)
             .unwrap_or(current_transform.rotation);
 
-        // Build new transform using SceneItemTransformBuilder
-        use obws::requests::scene_items::SceneItemTransformBuilder;
-        let new_transform = SceneItemTransformBuilder::new()
-            .position((position_x, position_y))
-            .scale((scale_x, scale_y))
-            .rotation(rotation)
-            .build();
+        // Build new transform by updating current transform
+        let mut new_transform = current_transform;
+        new_transform.position_x = position_x;
+        new_transform.position_y = position_y;
+        new_transform.scale_x = scale_x;
+        new_transform.scale_y = scale_y;
+        new_transform.rotation = rotation;
 
-        // Apply the transform using SetTransformBuilder
-        use obws::requests::scene_items::SetTransformBuilder;
+        // Apply the transform using SetTransform
+        use obws::requests::scene_items::SetTransform;
+        let set_transform = SetTransform {
+            scene: scene_name,
+            item_id: scene_item_id,
+            transform: new_transform.into(),
+        };
         client
             .scene_items()
-            .set_transform(SetTransformBuilder::new(
-                scene_name,
-                scene_item_id,
-                new_transform,
-            ))
+            .set_transform(set_transform)
             .await
             .context("Failed to set transform")?;
 

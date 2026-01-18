@@ -15,7 +15,6 @@ import { SyncTargetSelector } from "./components/SyncTargetSelector";
 import { AlertPanel } from "./components/AlertPanel";
 import { OBSSourceList } from "./components/OBSSourceList";
 import { AppMode } from "./types/sync";
-import { OBSSource } from "./types/obs";
 
 function App() {
   const [appMode, setAppMode] = useState<AppMode | null>(null);
@@ -24,9 +23,9 @@ function App() {
   const [obsPassword, setObsPassword] = useState("");
   const [isConnectingOBS, setIsConnectingOBS] = useState(false);
 
-  const { settings, isLoading: settingsLoading, loadSettings, saveSettings } = useSettings();
+  const { settings, isLoading: settingsLoading, saveSettings } = useSettings();
   const { status: obsStatus, sources, connect, disconnect, error: obsError } = useOBSConnection();
-  const { syncState, setMode, error: syncError } = useSyncState();
+  const { setMode, error: syncError } = useSyncState();
   const networkStatus = useNetworkStatus();
   const { alerts, clearAlert, clearAllAlerts } = useDesyncAlerts();
 

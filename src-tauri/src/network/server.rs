@@ -128,6 +128,7 @@ impl MasterServer {
         let client_info_for_accept = self.client_info.clone();
         let shutdown_for_accept = self.shutdown.clone();
         let callback_for_accept = self.initial_state_callback.clone();
+        let slave_statuses_for_accept = self.slave_statuses.clone();
         let accept_task = tokio::spawn(async move {
             loop {
                 if shutdown_for_accept.load(Ordering::SeqCst) {
@@ -139,7 +140,7 @@ impl MasterServer {
                         println!("New connection from: {}", addr);
                         let clients = clients_for_accept.clone();
                         let client_info = client_info_for_accept.clone();
-                        let slave_statuses = self.slave_statuses.clone();
+                        let slave_statuses = slave_statuses_for_accept.clone();
                         let callback = callback_for_accept.clone();
                         tokio::spawn(handle_connection(
                             stream,
