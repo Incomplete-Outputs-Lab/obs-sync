@@ -54,28 +54,20 @@ impl OBSEventHandler {
             while let Some(event) = events.next().await {
                 match event {
                     Event::CurrentProgramSceneChanged { name } => {
-                        let obs_event = OBSEvent::SceneChanged {
-                            scene_name: name,
-                        };
+                        let obs_event = OBSEvent::SceneChanged { scene_name: name };
                         if let Err(e) = tx.send(obs_event) {
                             eprintln!("Failed to send SceneChanged event: {}", e);
                             break;
                         }
                     }
                     Event::CurrentPreviewSceneChanged { name } => {
-                        let obs_event = OBSEvent::CurrentPreviewSceneChanged {
-                            scene_name: name,
-                        };
+                        let obs_event = OBSEvent::CurrentPreviewSceneChanged { scene_name: name };
                         if let Err(e) = tx.send(obs_event) {
                             eprintln!("Failed to send CurrentPreviewSceneChanged event: {}", e);
                             break;
                         }
                     }
-                    Event::SceneItemTransformChanged {
-                        scene,
-                        item_id,
-                        ..
-                    } => {
+                    Event::SceneItemTransformChanged { scene, item_id, .. } => {
                         let obs_event = OBSEvent::SceneItemTransformChanged {
                             scene_name: scene,
                             scene_item_id: item_id as i64,
