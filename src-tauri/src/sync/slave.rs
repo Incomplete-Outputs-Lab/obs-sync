@@ -1,5 +1,7 @@
 use super::diff::{DiffDetector, DiffSeverity};
-use super::protocol::{SourceUpdateAction, SourceUpdatePayload, SyncMessage, SyncMessageType, SyncTargetType};
+use super::protocol::{
+    SourceUpdateAction, SourceUpdatePayload, SyncMessage, SyncMessageType, SyncTargetType,
+};
 use crate::obs::{commands::OBSCommands, OBSClient};
 use anyhow::{Context, Result};
 use std::sync::Arc;
@@ -352,7 +354,12 @@ impl SlaveSync {
 
                                     if let Some(transform_obj) = transform_map.as_object() {
                                         if let Err(e) = self
-                                            .apply_transform(client, &payload.scene_name, new_item_id, transform_obj)
+                                            .apply_transform(
+                                                client,
+                                                &payload.scene_name,
+                                                new_item_id,
+                                                transform_obj,
+                                            )
                                             .await
                                         {
                                             eprintln!(
@@ -415,7 +422,10 @@ impl SlaveSync {
                             } else {
                                 println!(
                                     "Set scene item {} (id: {}) enabled state to {} in scene {}",
-                                    payload.source_name, payload.scene_item_id, enabled, payload.scene_name
+                                    payload.source_name,
+                                    payload.scene_item_id,
+                                    enabled,
+                                    payload.scene_name
                                 );
                             }
                         }

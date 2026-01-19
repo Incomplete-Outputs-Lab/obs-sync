@@ -19,8 +19,10 @@ impl OBSCommands {
         source_name: &str,
         scene_item_enabled: Option<bool>,
     ) -> Result<i64> {
-        let scene_id: obws::requests::scenes::SceneId = obws::requests::scenes::SceneId::Name(scene_name);
-        let source_id: obws::requests::sources::SourceId = obws::requests::sources::SourceId::Name(source_name);
+        let scene_id: obws::requests::scenes::SceneId =
+            obws::requests::scenes::SceneId::Name(scene_name);
+        let source_id: obws::requests::sources::SourceId =
+            obws::requests::sources::SourceId::Name(source_name);
 
         use obws::requests::scene_items::CreateSceneItem;
         let item_id = client
@@ -36,8 +38,13 @@ impl OBSCommands {
         Ok(item_id as i64)
     }
 
-    pub async fn remove_scene_item(client: &Client, scene_name: &str, scene_item_id: i64) -> Result<()> {
-        let scene_id: obws::requests::scenes::SceneId = obws::requests::scenes::SceneId::Name(scene_name);
+    pub async fn remove_scene_item(
+        client: &Client,
+        scene_name: &str,
+        scene_item_id: i64,
+    ) -> Result<()> {
+        let scene_id: obws::requests::scenes::SceneId =
+            obws::requests::scenes::SceneId::Name(scene_name);
 
         client
             .scene_items()
@@ -54,7 +61,8 @@ impl OBSCommands {
         scene_item_id: i64,
         enabled: bool,
     ) -> Result<()> {
-        let scene_id: obws::requests::scenes::SceneId = obws::requests::scenes::SceneId::Name(scene_name);
+        let scene_id: obws::requests::scenes::SceneId =
+            obws::requests::scenes::SceneId::Name(scene_name);
 
         use obws::requests::scene_items::SetEnabled;
         client

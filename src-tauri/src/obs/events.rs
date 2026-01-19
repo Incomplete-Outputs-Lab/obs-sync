@@ -110,7 +110,12 @@ impl OBSEventHandler {
                         // are not directly available as events in obws 0.11
                         // TODO: Implement filter change detection via polling or upgrade obws version
                     }
-                    Event::SceneItemCreated { scene, item_id, source, .. } => {
+                    Event::SceneItemCreated {
+                        scene,
+                        item_id,
+                        source,
+                        ..
+                    } => {
                         let obs_event = OBSEvent::SceneItemCreated {
                             scene_name: format!("{:?}", scene),
                             scene_item_id: item_id as i64,
@@ -121,7 +126,12 @@ impl OBSEventHandler {
                             break;
                         }
                     }
-                    Event::SceneItemRemoved { scene, item_id, source, .. } => {
+                    Event::SceneItemRemoved {
+                        scene,
+                        item_id,
+                        source,
+                        ..
+                    } => {
                         let obs_event = OBSEvent::SceneItemRemoved {
                             scene_name: format!("{:?}", scene),
                             scene_item_id: item_id as i64,
@@ -132,7 +142,12 @@ impl OBSEventHandler {
                             break;
                         }
                     }
-                    Event::SceneItemEnableStateChanged { scene, item_id, enabled, .. } => {
+                    Event::SceneItemEnableStateChanged {
+                        scene,
+                        item_id,
+                        enabled,
+                        ..
+                    } => {
                         let obs_event = OBSEvent::SceneItemEnableStateChanged {
                             scene_name: format!("{:?}", scene),
                             scene_item_id: item_id as i64,

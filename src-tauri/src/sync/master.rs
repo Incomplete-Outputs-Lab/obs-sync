@@ -1,6 +1,6 @@
 use super::protocol::{
-    ImageUpdatePayload, SceneChangePayload, SourceUpdateAction, SourceUpdatePayload, SyncMessage,
-    SyncMessageType, SyncTargetType, TransformData, TransformUpdatePayload,
+    SceneChangePayload, SourceUpdateAction, SourceUpdatePayload, SyncMessage, SyncMessageType,
+    SyncTargetType, TransformData, TransformUpdatePayload,
 };
 use crate::obs::{events::OBSEvent, OBSClient};
 use anyhow::Result;
@@ -48,8 +48,8 @@ impl MasterSync {
                             let payload = SceneChangePayload {
                                 scene_name: scene_name.clone(),
                             };
-                            let payload_json = serde_json::to_value(&payload)
-                                .unwrap_or_else(|_| serde_json::Value::Null);
+                            let payload_json =
+                                serde_json::to_value(&payload).unwrap_or(serde_json::Value::Null);
                             let msg = SyncMessage::new(
                                 SyncMessageType::SceneChange,
                                 SyncTargetType::Program,
@@ -63,8 +63,8 @@ impl MasterSync {
                             let payload = SceneChangePayload {
                                 scene_name: scene_name.clone(),
                             };
-                            let payload_json = serde_json::to_value(&payload)
-                                .unwrap_or_else(|_| serde_json::Value::Null);
+                            let payload_json =
+                                serde_json::to_value(&payload).unwrap_or(serde_json::Value::Null);
                             let msg = SyncMessage::new(
                                 SyncMessageType::SceneChange,
                                 SyncTargetType::Preview,
@@ -110,7 +110,7 @@ impl MasterSync {
                                                 },
                                             };
                                             let payload_json = serde_json::to_value(&payload)
-                                                .unwrap_or_else(|_| serde_json::Value::Null);
+                                                .unwrap_or(serde_json::Value::Null);
 
                                             let msg = SyncMessage::new(
                                                 SyncMessageType::TransformUpdate,
@@ -387,13 +387,11 @@ impl MasterSync {
                                         obws::requests::scenes::SceneId::Name(&scene_name_clone);
 
                                     // Get scene item details
-                                    match client
-                                        .scene_items()
-                                        .list(scene_id)
-                                        .await
-                                    {
+                                    match client.scene_items().list(scene_id).await {
                                         Ok(items) => {
-                                            if let Some(item) = items.iter().find(|i| i.id == scene_item_id) {
+                                            if let Some(item) =
+                                                items.iter().find(|i| i.id == scene_item_id)
+                                            {
                                                 // Get transform if available
                                                 let transform = client
                                                     .scene_items()
@@ -417,7 +415,8 @@ impl MasterSync {
                                                     .await
                                                     .ok();
 
-                                                let source_type = item.input_kind.clone().unwrap_or_default();
+                                                let source_type =
+                                                    item.input_kind.clone().unwrap_or_default();
 
                                                 let payload = SourceUpdatePayload {
                                                     scene_name: scene_name_clone.clone(),
@@ -430,7 +429,7 @@ impl MasterSync {
                                                 };
 
                                                 let payload_json = serde_json::to_value(&payload)
-                                                    .unwrap_or_else(|_| serde_json::Value::Null);
+                                                    .unwrap_or(serde_json::Value::Null);
 
                                                 let msg = SyncMessage::new(
                                                     SyncMessageType::SourceUpdate,
@@ -472,8 +471,8 @@ impl MasterSync {
                                 transform: None,
                             };
 
-                            let payload_json = serde_json::to_value(&payload)
-                                .unwrap_or_else(|_| serde_json::Value::Null);
+                            let payload_json =
+                                serde_json::to_value(&payload).unwrap_or(serde_json::Value::Null);
 
                             let msg = SyncMessage::new(
                                 SyncMessageType::SourceUpdate,
@@ -506,14 +505,13 @@ impl MasterSync {
                                         obws::requests::scenes::SceneId::Name(&scene_name_clone);
 
                                     // Get scene item to find source name
-                                    match client
-                                        .scene_items()
-                                        .list(scene_id)
-                                        .await
-                                    {
+                                    match client.scene_items().list(scene_id).await {
                                         Ok(items) => {
-                                            if let Some(item) = items.iter().find(|i| i.id == scene_item_id) {
-                                                let scene_name_for_payload = scene_name_clone.clone();
+                                            if let Some(item) =
+                                                items.iter().find(|i| i.id == scene_item_id)
+                                            {
+                                                let scene_name_for_payload =
+                                                    scene_name_clone.clone();
                                                 let payload = SourceUpdatePayload {
                                                     scene_name: scene_name_clone,
                                                     scene_item_id,
@@ -525,7 +523,7 @@ impl MasterSync {
                                                 };
 
                                                 let payload_json = serde_json::to_value(&payload)
-                                                    .unwrap_or_else(|_| serde_json::Value::Null);
+                                                    .unwrap_or(serde_json::Value::Null);
 
                                                 let msg = SyncMessage::new(
                                                     SyncMessageType::SourceUpdate,
