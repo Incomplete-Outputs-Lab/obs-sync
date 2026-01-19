@@ -55,6 +55,7 @@ pub fn run() {
             commands::stop_master_server,
             commands::connect_to_master,
             commands::disconnect_from_master,
+            commands::is_slave_connected,
             commands::set_sync_targets,
             commands::get_connected_clients_count,
             commands::get_connected_clients_info,
@@ -69,6 +70,7 @@ pub fn run() {
             commands::get_log_file_path,
             commands::open_log_file,
             commands::get_performance_metrics,
+            commands::get_local_ip_address,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

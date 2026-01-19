@@ -19,6 +19,9 @@ pub struct ReconnectionStatus {
     pub last_error: Option<String>,
 }
 
+type ConnectionStatusCallback = Arc<dyn Fn(bool) + Send + Sync>;
+
+#[derive(Clone)]
 pub struct SlaveClient {
     host: String,
     port: u16,
@@ -29,6 +32,8 @@ pub struct SlaveClient {
     sync_message_tx: Arc<RwLock<Option<mpsc::UnboundedSender<SyncMessage>>>>,
     reconnection_status: Arc<RwLock<ReconnectionStatus>>,
     current_attempt: Arc<AtomicU32>,
+    is_connected: Arc<AtomicBool>,
+    connection_status_callback: Arc<RwLock<Option<ConnectionStatusCallback>>>,
 }
 
 impl SlaveClient {
@@ -48,6 +53,33 @@ impl SlaveClient {
                 last_error: None,
             })),
             current_attempt: Arc::new(AtomicU32::new(0)),
+            is_connected: Arc::new(AtomicBool::new(false)),
+            connection_status_callback: Arc::new(RwLock::new(None)),
+        }
+    }
+
+    pub async fn set_connection_status_callback<F>(&self, callback: F)
+    where
+        F: Fn(bool) + Send + Sync + 'static,
+    {
+        *self.connection_status_callback.write().await = Some(Arc::new(callback));
+    }
+
+    pub async fn is_connected(&self) -> bool {
+        self.is_connected.load(Ordering::SeqCst)
+    }
+
+    async fn set_connected(&self, connected: bool) {
+        let old_value = self.is_connected.swap(connected, Ordering::SeqCst);
+        // Only notify if status actually changed
+        if old_value != connected {
+            let callback_opt = {
+                let callback = self.connection_status_callback.read().await;
+                callback.clone()
+            };
+            if let Some(cb) = callback_opt.as_ref() {
+                cb(connected);
+            }
         }
     }
 
@@ -84,6 +116,10 @@ impl SlaveClient {
         let max_attempts = self.max_reconnect_attempts;
         let message_tx_for_send = self.message_tx.clone();
         let sync_message_tx_for_store = self.sync_message_tx.clone();
+
+        // Channel to notify when first connection is established
+        let (first_connection_tx, mut first_connection_rx) =
+            mpsc::unbounded_channel::<Result<(), String>>();
 
         // Spawn task to handle sending messages (will be connected when WebSocket is ready)
         let send_tx_for_sending = send_tx.clone();
@@ -127,8 +163,11 @@ impl SlaveClient {
         // Spawn connection task with auto-reconnect
         let reconnection_status_for_task = self.reconnection_status.clone();
         let current_attempt_for_task = self.current_attempt.clone();
+        let first_connection_tx_for_task = first_connection_tx.clone();
+        let client_for_status = Arc::new(self.clone());
         tokio::spawn(async move {
             let mut attempt = 0;
+            let mut is_first_connection = true;
 
             loop {
                 if !should_reconnect.load(Ordering::SeqCst) {
@@ -140,6 +179,7 @@ impl SlaveClient {
                         status.last_error = None;
                     }
                     current_attempt_for_task.store(0, Ordering::SeqCst);
+                    client_for_status.clone().set_connected(false).await;
                     break;
                 }
 
@@ -177,6 +217,14 @@ impl SlaveClient {
                         ));
                     }
                     current_attempt_for_task.store(0, Ordering::SeqCst);
+                    client_for_status.clone().set_connected(false).await;
+                    // Notify first connection failure
+                    if is_first_connection {
+                        let _ = first_connection_tx_for_task.send(Err(format!(
+                            "Failed to connect after {} attempts",
+                            max_attempts
+                        )));
+                    }
                     break;
                 }
 
@@ -185,7 +233,8 @@ impl SlaveClient {
                     Ok((ws_stream, _)) => {
                         println!("Connected to master: {}", url);
                         attempt = 0; // Reset attempt counter on successful connection
-                                     // Update status: connected successfully
+                        client_for_status.clone().set_connected(true).await;
+                        // Update status: connected successfully
                         {
                             let mut status = reconnection_status_for_task.write().await;
                             status.is_reconnecting = false;
@@ -193,6 +242,12 @@ impl SlaveClient {
                             status.last_error = None;
                         }
                         current_attempt_for_task.store(0, Ordering::SeqCst);
+
+                        // Notify first connection success
+                        if is_first_connection {
+                            is_first_connection = false;
+                            let _ = first_connection_tx_for_task.send(Ok(()));
+                        }
 
                         let (ws_sender, mut ws_receiver) = ws_stream.split();
                         let tx_clone = tx.clone();
@@ -211,6 +266,7 @@ impl SlaveClient {
                         let message_tx_for_cleanup = message_tx_for_send.clone();
                         let sync_message_tx_for_cleanup = sync_message_tx_for_store.clone();
                         let reconnection_status_for_incoming = reconnection_status_for_task.clone();
+                        let client_for_disconnect = client_for_status.clone();
                         tokio::spawn(async move {
                             while let Some(msg) = ws_receiver.next().await {
                                 match msg {
@@ -260,6 +316,7 @@ impl SlaveClient {
                                 status.attempt_count = 0;
                                 status.last_error = Some("Connection lost".to_string());
                             }
+                            client_for_disconnect.set_connected(false).await;
                         });
 
                         // Wait for connection to break
@@ -280,17 +337,48 @@ impl SlaveClient {
                             status.last_error = Some(format!("{}", e));
                         }
                         current_attempt_for_task.store(attempt, Ordering::SeqCst);
+                        client_for_status.clone().set_connected(false).await;
+                        // Notify first connection failure
+                        if is_first_connection && attempt >= max_attempts {
+                            let _ = first_connection_tx_for_task.send(Err(format!("{}", e)));
+                        }
                     }
                 }
             }
         });
 
-        Ok((rx, send_tx))
+        // Wait for first connection to be established (with timeout)
+        let timeout = tokio::time::Duration::from_secs(30);
+        match tokio::time::timeout(timeout, first_connection_rx.recv()).await {
+            Ok(Some(Ok(()))) => {
+                // Connection established successfully
+                Ok((rx, send_tx))
+            }
+            Ok(Some(Err(e))) => {
+                // Connection failed
+                self.set_connected(false).await;
+                Err(anyhow::anyhow!("Failed to connect to master: {}", e))
+            }
+            Ok(None) => {
+                // Channel closed unexpectedly
+                self.set_connected(false).await;
+                Err(anyhow::anyhow!("Connection attempt was cancelled"))
+            }
+            Err(_) => {
+                // Timeout
+                self.set_connected(false).await;
+                Err(anyhow::anyhow!(
+                    "Connection timeout after {} seconds",
+                    timeout.as_secs()
+                ))
+            }
+        }
     }
 
     pub async fn disconnect(&self) {
         // Stop reconnection attempts
         self.should_reconnect.store(false, Ordering::SeqCst);
+        self.set_connected(false).await;
 
         // Update status: not reconnecting
         {

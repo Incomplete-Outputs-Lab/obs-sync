@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { NetworkStatus, ConnectionState, ClientInfo, SlaveStatus, ReconnectionStatus } from "../types/network";
 
 interface NetworkConfig {
@@ -141,7 +142,7 @@ export const useNetworkStatus = () => {
     try {
       setStatus({ state: ConnectionState.Connecting });
       await invoke("connect_to_master", { config });
-      setStatus({ state: ConnectionState.Connected });
+      // Status will be updated via Tauri event
       setError(null);
       
       // Start polling for reconnection status and performance metrics
@@ -186,6 +187,36 @@ export const useNetworkStatus = () => {
       setError(errorMessage);
       throw err;
     }
+  }, []);
+
+  // Listen for slave connection status events
+  useEffect(() => {
+    let unlistenFn: (() => void) | null = null;
+
+    const setupListener = async () => {
+      const unlisten = await listen<boolean>("slave-connection-status", (event) => {
+        const isConnected = event.payload;
+        setStatus((prev) => {
+          if (isConnected) {
+            return { state: ConnectionState.Connected };
+          } else {
+            if (prev.state === ConnectionState.Connected) {
+              setError("接続が切断されました");
+            }
+            return { state: ConnectionState.Disconnected };
+          }
+        });
+      });
+      unlistenFn = unlisten;
+    };
+
+    setupListener();
+
+    return () => {
+      if (unlistenFn) {
+        unlistenFn();
+      }
+    };
   }, []);
 
   // Cleanup polling on unmount

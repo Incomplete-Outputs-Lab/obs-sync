@@ -35,7 +35,7 @@ impl OBSCommands {
             .await
             .context("Failed to create scene item")?;
 
-        Ok(item_id as i64)
+        Ok(item_id)
     }
 
     pub async fn remove_scene_item(

@@ -156,22 +156,6 @@ export const SlaveMonitor = () => {
                     {performanceMetrics.averageLatencyMs.toFixed(2)} ms
                   </span>
                 </div>
-                <div className="metric-item">
-                  <span className="metric-label">総メッセージ数:</span>
-                  <span className="metric-value">{performanceMetrics.totalMessages}</span>
-                </div>
-                <div className="metric-item">
-                  <span className="metric-label">メッセージ/秒:</span>
-                  <span className="metric-value">
-                    {performanceMetrics.messagesPerSecond.toFixed(2)}
-                  </span>
-                </div>
-                <div className="metric-item">
-                  <span className="metric-label">総転送バイト数:</span>
-                  <span className="metric-value">
-                    {(performanceMetrics.totalBytes / 1024).toFixed(2)} KB
-                  </span>
-                </div>
               </div>
             </div>
           )}

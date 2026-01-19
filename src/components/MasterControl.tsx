@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useNetworkStatus } from "../hooks/useNetworkStatus";
 import { ConnectionState } from "../types/network";
@@ -8,7 +8,21 @@ export const MasterControl = () => {
   const [port, setPort] = useState(8080);
   const [isStarting, setIsStarting] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
+  const [localIpAddress, setLocalIpAddress] = useState<string | null>(null);
   const { status, clients, slaveStatuses, performanceMetrics, startMasterServer, stopMasterServer } = useNetworkStatus();
+
+  useEffect(() => {
+    const fetchLocalIp = async () => {
+      try {
+        const ip = await invoke<string>("get_local_ip_address");
+        setLocalIpAddress(ip);
+      } catch (error) {
+        console.error("Failed to get local IP address:", error);
+        setLocalIpAddress(null);
+      }
+    };
+    fetchLocalIp();
+  }, []);
 
   const handleStart = async () => {
     setIsStarting(true);
@@ -127,10 +141,6 @@ export const MasterControl = () => {
           </div>
           <div className="status-panel-content">
             <div className="status-item">
-              <span className="status-label">ポート:</span>
-              <span className="status-value">{port}</span>
-            </div>
-            <div className="status-item">
               <span className="status-label">接続中のクライアント:</span>
               <span className="status-value status-value-highlight">
                 {status.connectedClients || 0} 台
@@ -138,7 +148,9 @@ export const MasterControl = () => {
             </div>
             <div className="status-item">
               <span className="status-label">接続URL:</span>
-              <code className="status-code">ws://&lt;your-ip&gt;:{port}</code>
+              <code className="status-code">
+                ws://{localIpAddress || "<your-ip>"}:{port}
+              </code>
             </div>
           </div>
 
@@ -150,22 +162,6 @@ export const MasterControl = () => {
                   <span className="metric-label">平均レイテンシー:</span>
                   <span className="metric-value">
                     {performanceMetrics.averageLatencyMs.toFixed(2)} ms
-                  </span>
-                </div>
-                <div className="metric-item">
-                  <span className="metric-label">総メッセージ数:</span>
-                  <span className="metric-value">{performanceMetrics.totalMessages}</span>
-                </div>
-                <div className="metric-item">
-                  <span className="metric-label">メッセージ/秒:</span>
-                  <span className="metric-value">
-                    {performanceMetrics.messagesPerSecond.toFixed(2)}
-                  </span>
-                </div>
-                <div className="metric-item">
-                  <span className="metric-label">総転送バイト数:</span>
-                  <span className="metric-value">
-                    {(performanceMetrics.totalBytes / 1024).toFixed(2)} KB
                   </span>
                 </div>
               </div>

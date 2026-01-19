@@ -42,6 +42,7 @@ pub struct MasterServer {
     shutdown: Arc<AtomicBool>,
     tasks: Arc<RwLock<Vec<JoinHandle<()>>>>,
     initial_state_callback: Arc<RwLock<Option<InitialStateCallback>>>,
+    listener: Arc<RwLock<Option<TcpListener>>>,
 }
 
 impl MasterServer {
@@ -54,6 +55,7 @@ impl MasterServer {
             shutdown: Arc::new(AtomicBool::new(false)),
             tasks: Arc::new(RwLock::new(Vec::new())),
             initial_state_callback: Arc::new(RwLock::new(None)),
+            listener: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -72,6 +74,14 @@ impl MasterServer {
     pub async fn stop(&self) {
         // Signal shutdown
         self.shutdown.store(true, Ordering::SeqCst);
+
+        // Close TcpListener to stop accepting new connections
+        {
+            let mut listener = self.listener.write().await;
+            if listener.take().is_some() {
+                println!("TcpListener closed");
+            }
+        }
 
         // Abort all tasks
         let tasks = self.tasks.write().await;
@@ -97,10 +107,14 @@ impl MasterServer {
             .await
             .context(format!("Failed to bind to {}", addr))?;
 
+        // Store listener for cleanup
+        *self.listener.write().await = Some(listener);
+
         println!("Master server listening on: {}", addr);
 
         let clients = self.clients.clone();
         let shutdown = self.shutdown.clone();
+        let listener_for_accept = self.listener.clone();
 
         // Broadcast sync messages to all connected clients
         let broadcast_task = tokio::spawn(async move {
@@ -150,8 +164,17 @@ impl MasterServer {
                     break;
                 }
 
-                match listener.accept().await {
-                    Ok((stream, addr)) => {
+                // Get listener from Arc and accept connection
+                let accept_result = {
+                    let listener_guard = listener_for_accept.read().await;
+                    match listener_guard.as_ref() {
+                        Some(l) => Some(l.accept().await),
+                        None => None, // Listener was closed
+                    }
+                };
+
+                match accept_result {
+                    Some(Ok((stream, addr))) => {
                         println!("New connection from: {}", addr);
                         let clients = clients_for_accept.clone();
                         let client_info = client_info_for_accept.clone();
@@ -166,8 +189,12 @@ impl MasterServer {
                             callback,
                         ));
                     }
-                    Err(e) => {
+                    Some(Err(e)) => {
                         eprintln!("Failed to accept connection: {}", e);
+                        break;
+                    }
+                    None => {
+                        // Listener was closed
                         break;
                     }
                 }

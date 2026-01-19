@@ -438,6 +438,21 @@ pub async fn connect_to_master(
     // Create SlaveClient
     let slave_client = Arc::new(SlaveClient::new(config.host.clone(), config.port));
 
+    // Set up connection status callback to emit Tauri events
+    let app_handle_for_callback = state.app_handle.clone();
+    slave_client
+        .set_connection_status_callback(move |is_connected| {
+            let app_handle = app_handle_for_callback.clone();
+            tokio::spawn(async move {
+                if let Some(handle) = app_handle.read().await.as_ref() {
+                    if let Err(e) = handle.emit("slave-connection-status", is_connected) {
+                        eprintln!("Failed to emit slave connection status event: {}", e);
+                    }
+                }
+            });
+        })
+        .await;
+
     // Connect to master and get sync message receiver and sender
     let (sync_rx, send_tx) = slave_client
         .connect()
@@ -534,6 +549,15 @@ pub async fn disconnect_from_master(state: State<'_, AppState>) -> Result<(), St
 
     println!("Disconnected from master");
     Ok(())
+}
+
+#[tauri::command]
+pub async fn is_slave_connected(state: State<'_, AppState>) -> Result<bool, String> {
+    if let Some(client) = state.slave_client.read().await.as_ref() {
+        Ok(client.is_connected().await)
+    } else {
+        Ok(false)
+    }
 }
 
 #[tauri::command]
@@ -690,6 +714,53 @@ pub async fn get_performance_metrics(
     state: State<'_, AppState>,
 ) -> Result<PerformanceMetrics, String> {
     Ok(state.performance_monitor.get_metrics().await)
+}
+
+#[tauri::command]
+pub fn get_local_ip_address() -> Result<String, String> {
+    use network_interface::{NetworkInterface, NetworkInterfaceConfig};
+
+    let interfaces =
+        NetworkInterface::show().map_err(|e| format!("Failed to get network interfaces: {}", e))?;
+
+    // Prefer Ethernet interfaces (eth*, en* on Linux/macOS, ETHERNET on Windows)
+    // Fallback to any non-loopback IPv4 address
+    for iface in &interfaces {
+        let name_lower = iface.name.to_lowercase();
+
+        // Skip loopback interfaces (lo, loopback, etc.)
+        if name_lower.contains("loopback") || name_lower.starts_with("lo") {
+            continue;
+        }
+
+        // Check for IPv4 address (addr is Vec<Addr> in v2.0.5)
+        for addr in &iface.addr {
+            if let network_interface::Addr::V4(v4_addr) = addr {
+                // Prefer Ethernet interfaces (starts with "eth", "en", or contains "ethernet")
+                if name_lower.starts_with("eth")
+                    || name_lower.starts_with("en")
+                    || name_lower.contains("ethernet")
+                {
+                    return Ok(v4_addr.ip.to_string());
+                }
+            }
+        }
+    }
+
+    // Fallback: return first non-loopback IPv4 address
+    for iface in interfaces {
+        let name_lower = iface.name.to_lowercase();
+
+        if !name_lower.contains("loopback") && !name_lower.starts_with("lo") {
+            for addr in &iface.addr {
+                if let network_interface::Addr::V4(v4_addr) = addr {
+                    return Ok(v4_addr.ip.to_string());
+                }
+            }
+        }
+    }
+
+    Err("No network interface with IPv4 address found".to_string())
 }
 
 #[tauri::command]
