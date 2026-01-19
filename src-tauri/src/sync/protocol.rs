@@ -112,3 +112,23 @@ pub struct SceneItemData {
     /// Base64 encoded image data for image sources
     pub image_data: Option<String>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SourceUpdateAction {
+    Created,
+    Removed,
+    EnabledStateChanged,
+    SettingsChanged,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SourceUpdatePayload {
+    pub scene_name: String,
+    pub scene_item_id: i64,
+    pub source_name: String,
+    pub action: SourceUpdateAction,
+    pub source_type: Option<String>,
+    pub scene_item_enabled: Option<bool>,
+    pub transform: Option<TransformData>,
+}

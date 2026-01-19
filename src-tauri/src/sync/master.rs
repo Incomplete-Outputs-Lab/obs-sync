@@ -1,4 +1,7 @@
-use super::protocol::{SyncMessage, SyncMessageType, SyncTargetType};
+use super::protocol::{
+    ImageUpdatePayload, SceneChangePayload, SourceUpdateAction, SourceUpdatePayload, SyncMessage,
+    SyncMessageType, SyncTargetType, TransformData, TransformUpdatePayload,
+};
 use crate::obs::{events::OBSEvent, OBSClient};
 use anyhow::Result;
 use std::sync::Arc;
@@ -42,26 +45,30 @@ impl MasterSync {
                 match event {
                     OBSEvent::SceneChanged { scene_name } => {
                         if targets.contains(&SyncTargetType::Program) {
-                            let payload = serde_json::json!({
-                                "scene_name": scene_name
-                            });
+                            let payload = SceneChangePayload {
+                                scene_name: scene_name.clone(),
+                            };
+                            let payload_json = serde_json::to_value(&payload)
+                                .unwrap_or_else(|_| serde_json::Value::Null);
                             let msg = SyncMessage::new(
                                 SyncMessageType::SceneChange,
                                 SyncTargetType::Program,
-                                payload,
+                                payload_json,
                             );
                             let _ = message_tx.send(msg);
                         }
                     }
                     OBSEvent::CurrentPreviewSceneChanged { scene_name } => {
                         if targets.contains(&SyncTargetType::Preview) {
-                            let payload = serde_json::json!({
-                                "scene_name": scene_name
-                            });
+                            let payload = SceneChangePayload {
+                                scene_name: scene_name.clone(),
+                            };
+                            let payload_json = serde_json::to_value(&payload)
+                                .unwrap_or_else(|_| serde_json::Value::Null);
                             let msg = SyncMessage::new(
                                 SyncMessageType::SceneChange,
                                 SyncTargetType::Preview,
-                                payload,
+                                payload_json,
                             );
                             let _ = message_tx.send(msg);
                         }
@@ -89,24 +96,26 @@ impl MasterSync {
                                         .await
                                     {
                                         Ok(transform) => {
-                                            let payload = serde_json::json!({
-                                                "scene_name": scene_name_clone,
-                                                "scene_item_id": scene_item_id,
-                                                "transform": {
-                                                    "position_x": transform.position_x,
-                                                    "position_y": transform.position_y,
-                                                    "rotation": transform.rotation,
-                                                    "scale_x": transform.scale_x,
-                                                    "scale_y": transform.scale_y,
-                                                    "width": transform.width,
-                                                    "height": transform.height,
-                                                }
-                                            });
+                                            let payload = TransformUpdatePayload {
+                                                scene_name: scene_name_clone.clone(),
+                                                scene_item_id,
+                                                transform: TransformData {
+                                                    position_x: transform.position_x as f64,
+                                                    position_y: transform.position_y as f64,
+                                                    rotation: transform.rotation as f64,
+                                                    scale_x: transform.scale_x as f64,
+                                                    scale_y: transform.scale_y as f64,
+                                                    width: transform.width as f64,
+                                                    height: transform.height as f64,
+                                                },
+                                            };
+                                            let payload_json = serde_json::to_value(&payload)
+                                                .unwrap_or_else(|_| serde_json::Value::Null);
 
                                             let msg = SyncMessage::new(
                                                 SyncMessageType::TransformUpdate,
                                                 SyncTargetType::Source,
-                                                payload,
+                                                payload_json,
                                             );
                                             let _ = message_tx_clone.send(msg);
                                             println!(
@@ -352,6 +361,189 @@ impl MasterSync {
                                         }
                                         Err(e) => {
                                             eprintln!("Failed to get input settings: {}", e);
+                                        }
+                                    }
+                                }
+                            });
+                        }
+                    }
+                    OBSEvent::SceneItemCreated {
+                        scene_name,
+                        scene_item_id,
+                        source_name,
+                    } => {
+                        if targets.contains(&SyncTargetType::Source) {
+                            let obs_client_clone = obs_client.clone();
+                            let message_tx_clone = message_tx.clone();
+                            let scene_name_clone = scene_name.clone();
+                            let source_name_clone = source_name.clone();
+
+                            tokio::spawn(async move {
+                                let client_arc = obs_client_clone.get_client_arc();
+                                let client_lock = client_arc.read().await;
+
+                                if let Some(client) = client_lock.as_ref() {
+                                    let scene_id: obws::requests::scenes::SceneId =
+                                        obws::requests::scenes::SceneId::Name(&scene_name_clone);
+
+                                    // Get scene item details
+                                    match client
+                                        .scene_items()
+                                        .list(scene_id)
+                                        .await
+                                    {
+                                        Ok(items) => {
+                                            if let Some(item) = items.iter().find(|i| i.id == scene_item_id) {
+                                                // Get transform if available
+                                                let transform = client
+                                                    .scene_items()
+                                                    .transform(scene_id, scene_item_id)
+                                                    .await
+                                                    .ok()
+                                                    .map(|t| super::protocol::TransformData {
+                                                        position_x: t.position_x as f64,
+                                                        position_y: t.position_y as f64,
+                                                        rotation: t.rotation as f64,
+                                                        scale_x: t.scale_x as f64,
+                                                        scale_y: t.scale_y as f64,
+                                                        width: t.width as f64,
+                                                        height: t.height as f64,
+                                                    });
+
+                                                // Get enabled state separately since SceneItem doesn't have it
+                                                let enabled_state = client
+                                                    .scene_items()
+                                                    .enabled(scene_id, scene_item_id)
+                                                    .await
+                                                    .ok();
+
+                                                let source_type = item.input_kind.clone().unwrap_or_default();
+
+                                                let payload = SourceUpdatePayload {
+                                                    scene_name: scene_name_clone.clone(),
+                                                    scene_item_id,
+                                                    source_name: source_name_clone.clone(),
+                                                    action: SourceUpdateAction::Created,
+                                                    source_type: Some(source_type),
+                                                    scene_item_enabled: enabled_state,
+                                                    transform,
+                                                };
+
+                                                let payload_json = serde_json::to_value(&payload)
+                                                    .unwrap_or_else(|_| serde_json::Value::Null);
+
+                                                let msg = SyncMessage::new(
+                                                    SyncMessageType::SourceUpdate,
+                                                    SyncTargetType::Source,
+                                                    payload_json,
+                                                );
+                                                let _ = message_tx_clone.send(msg);
+                                                println!(
+                                                    "Sent source created update for item {} in {}",
+                                                    scene_item_id, scene_name_clone
+                                                );
+                                            }
+                                        }
+                                        Err(e) => {
+                                            eprintln!(
+                                                "Failed to get scene items for {}: {}",
+                                                scene_name_clone, e
+                                            );
+                                        }
+                                    }
+                                }
+                            });
+                        }
+                    }
+                    OBSEvent::SceneItemRemoved {
+                        scene_name,
+                        scene_item_id,
+                        source_name,
+                    } => {
+                        if targets.contains(&SyncTargetType::Source) {
+                            let scene_name_clone = scene_name.clone();
+                            let payload = SourceUpdatePayload {
+                                scene_name,
+                                scene_item_id,
+                                source_name,
+                                action: SourceUpdateAction::Removed,
+                                source_type: None,
+                                scene_item_enabled: None,
+                                transform: None,
+                            };
+
+                            let payload_json = serde_json::to_value(&payload)
+                                .unwrap_or_else(|_| serde_json::Value::Null);
+
+                            let msg = SyncMessage::new(
+                                SyncMessageType::SourceUpdate,
+                                SyncTargetType::Source,
+                                payload_json,
+                            );
+                            let _ = message_tx.send(msg);
+                            println!(
+                                "Sent source removed update for item {} in {}",
+                                scene_item_id, scene_name_clone
+                            );
+                        }
+                    }
+                    OBSEvent::SceneItemEnableStateChanged {
+                        scene_name,
+                        scene_item_id,
+                        enabled,
+                    } => {
+                        if targets.contains(&SyncTargetType::Source) {
+                            let obs_client_clone = obs_client.clone();
+                            let message_tx_clone = message_tx.clone();
+                            let scene_name_clone = scene_name.clone();
+
+                            tokio::spawn(async move {
+                                let client_arc = obs_client_clone.get_client_arc();
+                                let client_lock = client_arc.read().await;
+
+                                if let Some(client) = client_lock.as_ref() {
+                                    let scene_id: obws::requests::scenes::SceneId =
+                                        obws::requests::scenes::SceneId::Name(&scene_name_clone);
+
+                                    // Get scene item to find source name
+                                    match client
+                                        .scene_items()
+                                        .list(scene_id)
+                                        .await
+                                    {
+                                        Ok(items) => {
+                                            if let Some(item) = items.iter().find(|i| i.id == scene_item_id) {
+                                                let scene_name_for_payload = scene_name_clone.clone();
+                                                let payload = SourceUpdatePayload {
+                                                    scene_name: scene_name_clone,
+                                                    scene_item_id,
+                                                    source_name: item.source_name.clone(),
+                                                    action: SourceUpdateAction::EnabledStateChanged,
+                                                    source_type: None,
+                                                    scene_item_enabled: Some(enabled),
+                                                    transform: None,
+                                                };
+
+                                                let payload_json = serde_json::to_value(&payload)
+                                                    .unwrap_or_else(|_| serde_json::Value::Null);
+
+                                                let msg = SyncMessage::new(
+                                                    SyncMessageType::SourceUpdate,
+                                                    SyncTargetType::Source,
+                                                    payload_json,
+                                                );
+                                                let _ = message_tx_clone.send(msg);
+                                                println!(
+                                                    "Sent source enable state changed update for item {} in {}",
+                                                    scene_item_id, scene_name_for_payload
+                                                );
+                                            }
+                                        }
+                                        Err(e) => {
+                                            eprintln!(
+                                                "Failed to get scene items for {}: {}",
+                                                scene_name_clone, e
+                                            );
                                         }
                                     }
                                 }

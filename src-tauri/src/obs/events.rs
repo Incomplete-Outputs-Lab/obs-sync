@@ -26,6 +26,21 @@ pub enum OBSEvent {
         scene_item_id: i64,
         filter_name: String,
     },
+    SceneItemCreated {
+        scene_name: String,
+        scene_item_id: i64,
+        source_name: String,
+    },
+    SceneItemRemoved {
+        scene_name: String,
+        scene_item_id: i64,
+        source_name: String,
+    },
+    SceneItemEnableStateChanged {
+        scene_name: String,
+        scene_item_id: i64,
+        enabled: bool,
+    },
 }
 
 pub struct OBSEventHandler {
@@ -94,6 +109,39 @@ impl OBSEventHandler {
                         // Filter name changed - we could potentially handle this, but settings changes
                         // are not directly available as events in obws 0.11
                         // TODO: Implement filter change detection via polling or upgrade obws version
+                    }
+                    Event::SceneItemCreated { scene, item_id, source, .. } => {
+                        let obs_event = OBSEvent::SceneItemCreated {
+                            scene_name: format!("{:?}", scene),
+                            scene_item_id: item_id as i64,
+                            source_name: format!("{:?}", source),
+                        };
+                        if let Err(e) = tx.send(obs_event) {
+                            eprintln!("Failed to send SceneItemCreated event: {}", e);
+                            break;
+                        }
+                    }
+                    Event::SceneItemRemoved { scene, item_id, source, .. } => {
+                        let obs_event = OBSEvent::SceneItemRemoved {
+                            scene_name: format!("{:?}", scene),
+                            scene_item_id: item_id as i64,
+                            source_name: format!("{:?}", source),
+                        };
+                        if let Err(e) = tx.send(obs_event) {
+                            eprintln!("Failed to send SceneItemRemoved event: {}", e);
+                            break;
+                        }
+                    }
+                    Event::SceneItemEnableStateChanged { scene, item_id, enabled, .. } => {
+                        let obs_event = OBSEvent::SceneItemEnableStateChanged {
+                            scene_name: format!("{:?}", scene),
+                            scene_item_id: item_id as i64,
+                            enabled,
+                        };
+                        if let Err(e) = tx.send(obs_event) {
+                            eprintln!("Failed to send SceneItemEnableStateChanged event: {}", e);
+                            break;
+                        }
                     }
                     _ => {
                         // Ignore other events

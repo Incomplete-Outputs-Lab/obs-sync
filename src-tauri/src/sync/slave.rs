@@ -1,5 +1,5 @@
 use super::diff::{DiffDetector, DiffSeverity};
-use super::protocol::{SyncMessage, SyncMessageType, SyncTargetType};
+use super::protocol::{SourceUpdateAction, SourceUpdatePayload, SyncMessage, SyncMessageType, SyncTargetType};
 use crate::obs::{commands::OBSCommands, OBSClient};
 use anyhow::{Context, Result};
 use std::sync::Arc;
@@ -314,6 +314,120 @@ impl SlaveSync {
                     }
                 } else {
                     eprintln!("Filter settings missing in payload");
+                }
+            }
+            SyncMessageType::SourceUpdate => {
+                // Parse SourceUpdatePayload from JSON
+                let payload: SourceUpdatePayload = serde_json::from_value(message.payload.clone())
+                    .context("Failed to parse SourceUpdatePayload")?;
+
+                match payload.action {
+                    SourceUpdateAction::Created => {
+                        // Create scene item
+                        match OBSCommands::create_scene_item(
+                            client,
+                            &payload.scene_name,
+                            &payload.source_name,
+                            payload.scene_item_enabled,
+                        )
+                        .await
+                        {
+                            Ok(new_item_id) => {
+                                println!(
+                                    "Created scene item {} (id: {}) in scene {}",
+                                    payload.source_name, new_item_id, payload.scene_name
+                                );
+
+                                // Apply transform if provided
+                                if let Some(transform) = payload.transform {
+                                    let transform_map = serde_json::json!({
+                                        "position_x": transform.position_x,
+                                        "position_y": transform.position_y,
+                                        "rotation": transform.rotation,
+                                        "scale_x": transform.scale_x,
+                                        "scale_y": transform.scale_y,
+                                        "width": transform.width,
+                                        "height": transform.height,
+                                    });
+
+                                    if let Some(transform_obj) = transform_map.as_object() {
+                                        if let Err(e) = self
+                                            .apply_transform(client, &payload.scene_name, new_item_id, transform_obj)
+                                            .await
+                                        {
+                                            eprintln!(
+                                                "Failed to apply transform for newly created item {}: {}",
+                                                new_item_id, e
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                self.send_alert(
+                                    payload.scene_name.clone(),
+                                    payload.source_name.clone(),
+                                    format!("Failed to create scene item: {}", e),
+                                    AlertSeverity::Warning,
+                                )?;
+                            }
+                        }
+                    }
+                    SourceUpdateAction::Removed => {
+                        // Remove scene item
+                        if let Err(e) = OBSCommands::remove_scene_item(
+                            client,
+                            &payload.scene_name,
+                            payload.scene_item_id,
+                        )
+                        .await
+                        {
+                            self.send_alert(
+                                payload.scene_name.clone(),
+                                payload.source_name.clone(),
+                                format!("Failed to remove scene item: {}", e),
+                                AlertSeverity::Warning,
+                            )?;
+                        } else {
+                            println!(
+                                "Removed scene item {} (id: {}) from scene {}",
+                                payload.source_name, payload.scene_item_id, payload.scene_name
+                            );
+                        }
+                    }
+                    SourceUpdateAction::EnabledStateChanged => {
+                        // Update enabled state
+                        if let Some(enabled) = payload.scene_item_enabled {
+                            if let Err(e) = OBSCommands::set_scene_item_enabled(
+                                client,
+                                &payload.scene_name,
+                                payload.scene_item_id,
+                                enabled,
+                            )
+                            .await
+                            {
+                                self.send_alert(
+                                    payload.scene_name.clone(),
+                                    payload.source_name.clone(),
+                                    format!("Failed to set scene item enabled state: {}", e),
+                                    AlertSeverity::Warning,
+                                )?;
+                            } else {
+                                println!(
+                                    "Set scene item {} (id: {}) enabled state to {} in scene {}",
+                                    payload.source_name, payload.scene_item_id, enabled, payload.scene_name
+                                );
+                            }
+                        }
+                    }
+                    SourceUpdateAction::SettingsChanged => {
+                        // Settings changed - similar to InputSettingsChanged, this might be handled elsewhere
+                        // For now, just log it
+                        println!(
+                            "Received settings changed for scene item {} (id: {}) in scene {}",
+                            payload.source_name, payload.scene_item_id, payload.scene_name
+                        );
+                    }
                 }
             }
             SyncMessageType::Heartbeat => {
