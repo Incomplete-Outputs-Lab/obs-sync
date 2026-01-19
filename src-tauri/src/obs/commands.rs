@@ -1,38 +1,9 @@
 use anyhow::{Context, Result};
 use obws::Client;
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SceneItemTransform {
-    pub position_x: f64,
-    pub position_y: f64,
-    pub rotation: f64,
-    pub scale_x: f64,
-    pub scale_y: f64,
-    pub width: f64,
-    pub height: f64,
-}
 
 pub struct OBSCommands;
 
 impl OBSCommands {
-    pub async fn get_current_program_scene(client: &Client) -> Result<String> {
-        let scene = client
-            .scenes()
-            .current_program_scene()
-            .await
-            .context("Failed to get current program scene")?;
-        Ok(scene)
-    }
-
-    pub async fn get_current_preview_scene(client: &Client) -> Result<Option<String>> {
-        match client.scenes().current_preview_scene().await {
-            Ok(scene) => Ok(Some(scene)),
-            Err(_) => Ok(None),
-        }
-    }
-
     pub async fn set_current_program_scene(client: &Client, scene_name: &str) -> Result<()> {
         client
             .scenes()
@@ -42,30 +13,68 @@ impl OBSCommands {
         Ok(())
     }
 
-    #[allow(dead_code)]
-    pub async fn set_scene_item_transform(
-        _client: &Client,
-        _scene_name: &str,
-        _scene_item_id: i64,
-        _transform: SceneItemTransform,
+    pub async fn create_scene_item(
+        client: &Client,
+        scene_name: &str,
+        source_name: &str,
+        scene_item_enabled: Option<bool>,
+    ) -> Result<i64> {
+        let scene_id: obws::requests::scenes::SceneId =
+            obws::requests::scenes::SceneId::Name(scene_name);
+        let source_id: obws::requests::sources::SourceId =
+            obws::requests::sources::SourceId::Name(source_name);
+
+        use obws::requests::scene_items::CreateSceneItem;
+        let item_id = client
+            .scene_items()
+            .create(CreateSceneItem {
+                scene: scene_id,
+                source: source_id,
+                enabled: scene_item_enabled,
+            })
+            .await
+            .context("Failed to create scene item")?;
+
+        Ok(item_id as i64)
+    }
+
+    pub async fn remove_scene_item(
+        client: &Client,
+        scene_name: &str,
+        scene_item_id: i64,
     ) -> Result<()> {
-        // Transform setting would be implemented based on the actual obws API
+        let scene_id: obws::requests::scenes::SceneId =
+            obws::requests::scenes::SceneId::Name(scene_name);
+
+        client
+            .scene_items()
+            .remove(scene_id, scene_item_id)
+            .await
+            .context("Failed to remove scene item")?;
+
         Ok(())
     }
 
-    #[allow(dead_code)]
-    pub async fn get_scene_item_list(_client: &Client, _scene_name: &str) -> Result<Vec<Value>> {
-        // Scene item list retrieval would be implemented based on the actual obws API
-        Ok(vec![])
-    }
-
-    #[allow(dead_code)]
-    pub async fn set_input_settings(
-        _client: &Client,
-        _input_name: &str,
-        _settings: &Value,
+    pub async fn set_scene_item_enabled(
+        client: &Client,
+        scene_name: &str,
+        scene_item_id: i64,
+        enabled: bool,
     ) -> Result<()> {
-        // Input settings would be implemented based on the actual obws API
+        let scene_id: obws::requests::scenes::SceneId =
+            obws::requests::scenes::SceneId::Name(scene_name);
+
+        use obws::requests::scene_items::SetEnabled;
+        client
+            .scene_items()
+            .set_enabled(SetEnabled {
+                scene: scene_id,
+                item_id: scene_item_id,
+                enabled,
+            })
+            .await
+            .context("Failed to set scene item enabled state")?;
+
         Ok(())
     }
 }

@@ -20,6 +20,12 @@
   --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
   --master-color: #8b5cf6;
   --slave-color: #06b6d4;
+  /* モダンなグラデーション */
+  --gradient-primary: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  --gradient-master: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+  --gradient-slave: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%);
+  --gradient-success: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  --gradient-danger: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
 }
 
 * {
@@ -31,8 +37,53 @@
 body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   background: var(--bg-color);
+  background-image: 
+    radial-gradient(at 0% 0%, rgba(102, 126, 234, 0.1) 0px, transparent 50%),
+    radial-gradient(at 100% 100%, rgba(118, 75, 162, 0.1) 0px, transparent 50%);
+  background-attachment: fixed;
   color: var(--text-primary);
   line-height: 1.6;
+  /* デスクトップアプリらしいテキスト選択の制御 */
+  -webkit-user-select: none;
+  user-select: none;
+  /* テキストの滑らかなレンダリング */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* 入力可能な要素は選択可能にする */
+input,
+textarea,
+[contenteditable="true"],
+.selectable {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* 選択不可能な要素（見出し、ラベル、アイコンなど） */
+h1, h2, h3, h4, h5, h6,
+label,
+.section-icon,
+.logo-icon,
+.mode-card-icon,
+.target-card-icon,
+.info-icon,
+.status-icon,
+.alert-close,
+.mode-badge,
+.badge,
+button:not(input),
+[role="button"]:not(input),
+.subtitle,
+.selection-description,
+.mode-card-description,
+.target-card-description,
+.info-item,
+.status-label,
+.selector-description {
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: default;
 }
 
 .app {
@@ -49,6 +100,10 @@ body {
   position: sticky;
   top: 0;
   z-index: 100;
+  /* デスクトップアプリらしいガラスモーフィズム効果 */
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .header-content {
@@ -67,12 +122,6 @@ body {
 
 .logo-icon {
   font-size: 2.5rem;
-  animation: float 3s ease-in-out infinite;
-}
-
-@keyframes float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-10px); }
 }
 
 .app-header h1 {
@@ -90,11 +139,19 @@ body {
 }
 
 .mode-badge {
-  background: rgba(255, 255, 255, 0.2);
-  backdrop-filter: blur(10px);
+  background: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   padding: 0.75rem 1.5rem;
   border-radius: 9999px;
   border: 1px solid rgba(255, 255, 255, 0.3);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  transition: all 0.3s ease;
+}
+
+.mode-badge:hover {
+  background: rgba(255, 255, 255, 0.2);
+  transform: scale(1.05);
 }
 
 .badge {
@@ -127,10 +184,22 @@ body {
   font-size: 2.5rem;
   font-weight: 700;
   margin-bottom: 0.5rem;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: var(--gradient-primary);
+  background-size: 200% 200%;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
+  animation: gradientShift 5s ease infinite;
+  letter-spacing: -0.02em;
+}
+
+@keyframes gradientShift {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
 }
 
 .selection-description {
@@ -156,6 +225,8 @@ body {
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
   overflow: hidden;
+  /* デスクトップアプリらしいホバー効果 */
+  will-change: transform, box-shadow;
 }
 
 .mode-card::before {
@@ -175,9 +246,15 @@ body {
 }
 
 .mode-card:hover {
-  transform: translateY(-8px);
-  box-shadow: var(--shadow-xl);
+  transform: translateY(-8px) scale(1.02);
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25),
+              0 0 0 1px rgba(99, 102, 241, 0.3);
   border-color: var(--primary-color);
+}
+
+.mode-card:active {
+  transform: translateY(-4px) scale(1.01);
+  transition: all 0.1s ease;
 }
 
 .mode-card-master:hover {
@@ -228,19 +305,41 @@ body {
 .btn-mode-select {
   width: 100%;
   padding: 0.875rem;
-  background: var(--primary-color);
+  background: var(--gradient-primary);
+  background-size: 200% 200%;
   color: white;
   border: none;
   border-radius: 0.5rem;
   font-size: 1rem;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-mode-select::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+  transition: left 0.5s;
+}
+
+.btn-mode-select:hover::before {
+  left: 100%;
 }
 
 .btn-mode-select:hover {
-  background: var(--primary-hover);
-  transform: scale(1.02);
+  background: var(--gradient-primary);
+  background-size: 200% 200%;
+  animation: gradientShift 3s ease infinite;
+  transform: translateY(-2px) scale(1.02);
+  box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
 }
 
 /* App Content */
@@ -267,11 +366,32 @@ body {
   padding: 1.5rem;
   margin-bottom: 1.5rem;
   box-shadow: var(--shadow);
-  transition: all 0.3s ease;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+.section::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--gradient-primary);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.3s ease;
+}
+
+.section:hover::before {
+  transform: scaleX(1);
 }
 
 .section:hover {
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-xl);
+  border-color: rgba(99, 102, 241, 0.3);
+  transform: translateY(-2px);
 }
 
 .section-header {
@@ -380,14 +500,19 @@ input[type="number"] {
   background: var(--bg-color);
   color: var(--text-primary);
   font-size: 1rem;
-  transition: all 0.2s ease;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   font-family: inherit;
+  /* デスクトップアプリらしいフォーカスリング */
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 input:focus {
   outline: none;
   border-color: var(--primary-color);
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2), 
+              0 0 0 1px var(--primary-color);
+  transform: translateY(-1px);
 }
 
 input:disabled {
@@ -412,15 +537,34 @@ button {
 }
 
 .btn-primary {
-  background: var(--primary-color);
+  background: var(--gradient-primary);
   color: white;
-  box-shadow: var(--shadow);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-primary::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+  transition: left 0.5s;
+}
+
+.btn-primary:hover:not(:disabled)::before {
+  left: 100%;
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: var(--primary-hover);
+  background: var(--gradient-primary);
+  background-size: 200% 200%;
+  animation: gradientShift 3s ease infinite;
   transform: translateY(-2px);
-  box-shadow: var(--shadow-lg);
+  box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
 }
 
 .btn-primary:active:not(:disabled) {
@@ -458,6 +602,11 @@ button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
   transform: none !important;
+}
+
+/* デスクトップアプリらしいボタンのアクティブ状態 */
+button:not(:disabled):active {
+  transform: translateY(0) scale(0.98);
 }
 
 /* Spinner */

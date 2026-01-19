@@ -1,5 +1,5 @@
 pub mod client;
-pub mod events;
 pub mod commands;
+pub mod events;
 
 pub use client::OBSClient;

@@ -14,14 +14,12 @@ pub enum DiffCategory {
     SceneMismatch,
     SourceMissing,
     TransformMismatch,
-    SettingsMismatch,
 }
 
 #[derive(Debug, Clone)]
 pub enum DiffSeverity {
-    Critical,  // Scene doesn't match
-    Warning,   // Transform or settings differ
-    Info,      // Minor differences
+    Critical, // Scene doesn't match
+    Warning,  // Transform or settings differ
 }
 
 pub struct DiffDetector;
@@ -33,9 +31,15 @@ impl DiffDetector {
         let mut diffs = Vec::new();
 
         // Compare current scene
-        let local_scene = local_state.get("current_scene").and_then(|v| v.as_str()).unwrap_or("");
-        let expected_scene = expected_state.get("current_scene").and_then(|v| v.as_str()).unwrap_or("");
-        
+        let local_scene = local_state
+            .get("current_scene")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let expected_scene = expected_state
+            .get("current_scene")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+
         if local_scene != expected_scene && !expected_scene.is_empty() {
             diffs.push(StateDifference {
                 category: DiffCategory::SceneMismatch,
@@ -52,15 +56,19 @@ impl DiffDetector {
         // Compare sources in current scene
         if let (Some(local_sources), Some(expected_sources)) = (
             local_state.get("sources").and_then(|v| v.as_array()),
-            expected_state.get("sources").and_then(|v| v.as_array())
+            expected_state.get("sources").and_then(|v| v.as_array()),
         ) {
             // Check for missing sources
             for expected_source in expected_sources {
-                let expected_name = expected_source.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                
-                if !local_sources.iter().any(|s| {
-                    s.get("name").and_then(|v| v.as_str()).unwrap_or("") == expected_name
-                }) {
+                let expected_name = expected_source
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+
+                if !local_sources
+                    .iter()
+                    .any(|s| s.get("name").and_then(|v| v.as_str()).unwrap_or("") == expected_name)
+                {
                     diffs.push(StateDifference {
                         category: DiffCategory::SourceMissing,
                         scene_name: local_scene.to_string(),
@@ -77,7 +85,7 @@ impl DiffDetector {
                             local_source,
                             expected_source,
                             local_scene,
-                            expected_name
+                            expected_name,
                         ) {
                             diffs.extend(transform_diffs);
                         }
@@ -97,14 +105,26 @@ impl DiffDetector {
     ) -> Option<Vec<StateDifference>> {
         let local_transform = local_source.get("transform")?;
         let expected_transform = expected_source.get("transform")?;
-        
+
         let mut diffs = Vec::new();
 
         // Compare position
-        let local_x = local_transform.get("position_x").and_then(|v| v.as_f64()).unwrap_or(0.0);
-        let expected_x = expected_transform.get("position_x").and_then(|v| v.as_f64()).unwrap_or(0.0);
-        let local_y = local_transform.get("position_y").and_then(|v| v.as_f64()).unwrap_or(0.0);
-        let expected_y = expected_transform.get("position_y").and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let local_x = local_transform
+            .get("position_x")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
+        let expected_x = expected_transform
+            .get("position_x")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
+        let local_y = local_transform
+            .get("position_y")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
+        let expected_y = expected_transform
+            .get("position_y")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
 
         if (local_x - expected_x).abs() > Self::TRANSFORM_TOLERANCE
             || (local_y - expected_y).abs() > Self::TRANSFORM_TOLERANCE
@@ -122,10 +142,22 @@ impl DiffDetector {
         }
 
         // Compare scale
-        let local_scale_x = local_transform.get("scale_x").and_then(|v| v.as_f64()).unwrap_or(1.0);
-        let expected_scale_x = expected_transform.get("scale_x").and_then(|v| v.as_f64()).unwrap_or(1.0);
-        let local_scale_y = local_transform.get("scale_y").and_then(|v| v.as_f64()).unwrap_or(1.0);
-        let expected_scale_y = expected_transform.get("scale_y").and_then(|v| v.as_f64()).unwrap_or(1.0);
+        let local_scale_x = local_transform
+            .get("scale_x")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(1.0);
+        let expected_scale_x = expected_transform
+            .get("scale_x")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(1.0);
+        let local_scale_y = local_transform
+            .get("scale_y")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(1.0);
+        let expected_scale_y = expected_transform
+            .get("scale_y")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(1.0);
 
         if (local_scale_x - expected_scale_x).abs() > 0.01
             || (local_scale_y - expected_scale_y).abs() > 0.01
@@ -147,13 +179,5 @@ impl DiffDetector {
         } else {
             Some(diffs)
         }
-    }
-
-    pub fn is_synced(diffs: &[StateDifference]) -> bool {
-        diffs.is_empty()
-    }
-
-    pub fn has_critical_diffs(diffs: &[StateDifference]) -> bool {
-        diffs.iter().any(|d| matches!(d.severity, DiffSeverity::Critical))
     }
 }
