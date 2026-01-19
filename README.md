@@ -1,10 +1,11 @@
 # OBS Sync
 
-LAN内の複数のOBS Studioを同期するシステム（イベント向け）
+中規模~大規模イベント運営者向け  
+LAN内の複数のOBS Studioを同期するシステム  
 
 ## 概要
 
-OBS Syncは、LAN内の複数のOBS Studio間で、画像ソース、シーン構成、ポジション情報などをリアルタイムで同期するためのデスクトップアプリケーションです。イベント制作現場での複数OBSのクライアントチェックや、複数配信環境の統一的な管理を想定しています。
+OBS Syncは、LAN内の複数のOBS Studio間で、画像ソース、シーン構成、ポジション情報などをリアルタイムで同期するためのデスクトップアプリケーションです。イベント制作現場での複数OBSのクライアントチェックや、複数配信環境の統一的な管理を想定しています。  
 
 ## 主要機能
 
@@ -30,58 +31,6 @@ Slaveモードでは、受信した変更とローカルのOBS状態に差異が
 
 - [最新リリース](https://github.com/FlowingSPDG/obs-sync/releases/latest)
 - [全リリース](https://github.com/FlowingSPDG/obs-sync/releases)
-
-## 必要要件
-
-- Node.js LTS版
-- Rust 1.70以降
-- OBS Studio 28.x以降（OBS WebSocket v5.x対応版）
-
-## セットアップ
-
-### 1. リポジトリのクローン
-```bash
-git clone https://github.com/FlowingSPDG/obs-sync.git
-cd obs-sync
-```
-
-### 2. 依存関係のインストール
-```bash
-npm install
-```
-
-### 3. OBS Studio側の設定
-1. OBS Studioを起動
-2. 「ツール」→「WebSocketサーバー設定」を開く
-3. WebSocketサーバーを有効化
-4. ポート番号とパスワード（オプション）を設定
-
-## 開発
-
-### 開発サーバーの起動
-
-#### 通常起動（1インスタンス）
-```bash
-npm run tauri dev
-```
-
-#### マルチインスタンス起動（Master/Slaveテスト用）
-2つのターミナルを開いて、それぞれで以下を実行：
-
-**ターミナル1（Master用）:**
-```bash
-npm run tauri:master
-```
-
-**ターミナル2（Slave用）:**
-```bash
-npm run tauri:slave
-```
-
-### ビルド
-```bash
-npm run tauri build
-```
 
 ## 使い方
 
