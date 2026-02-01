@@ -6,6 +6,67 @@ mod sync;
 use commands::AppState;
 use tauri::Manager;
 
+#[cfg(desktop)]
+use tauri_plugin_updater::UpdaterExt;
+
+/// バージョン情報を取得するコマンド
+#[tauri::command]
+fn get_app_version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}
+
+/// Gitコミットハッシュを取得するコマンド
+#[tauri::command]
+fn get_git_commit() -> String {
+    option_env!("GIT_HASH").unwrap_or("unknown").to_string()
+}
+
+/// 自動アップデートをチェックしてインストール
+#[cfg(desktop)]
+async fn check_and_install_update(app: tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+    tracing::info!("Checking for updates...");
+
+    match app.updater()?.check().await {
+        Ok(Some(update)) => {
+            tracing::info!(
+                "Update available: {} (current: {})",
+                update.version,
+                update.current_version
+            );
+
+            let mut downloaded = 0u64;
+
+            update
+                .download_and_install(
+                    |chunk_length, content_length| {
+                        downloaded += chunk_length as u64;
+                        if let Some(total) = content_length {
+                            tracing::info!("Downloaded {}/{} bytes", downloaded, total);
+                        } else {
+                            tracing::info!("Downloaded {} bytes", downloaded);
+                        }
+                    },
+                    || {
+                        tracing::info!("Update download finished");
+                    },
+                )
+                .await?;
+
+            tracing::info!("Update installed successfully. The app will restart.");
+            app.restart();
+        }
+        Ok(None) => {
+            tracing::info!("No updates available");
+        }
+        Err(e) => {
+            tracing::error!("Failed to check for updates: {}", e);
+            return Err(e.into());
+        }
+    }
+
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app_state = AppState::new();
@@ -36,6 +97,25 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(app_state)
         .setup(|app| {
+            // Initialize updater and process plugins for desktop
+            #[cfg(desktop)]
+            {
+                app.handle()
+                    .plugin(tauri_plugin_updater::Builder::new().build())
+                    .expect("Failed to initialize updater plugin");
+                app.handle()
+                    .plugin(tauri_plugin_process::init())
+                    .expect("Failed to initialize process plugin");
+
+                // Check for updates in background
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(e) = check_and_install_update(handle).await {
+                        tracing::error!("Update check failed: {}", e);
+                    }
+                });
+            }
+
             let handle = app.handle().clone();
             let state: tauri::State<AppState> = app.state();
             let state_inner = state.inner().clone();
@@ -71,6 +151,8 @@ pub fn run() {
             commands::open_log_file,
             commands::get_performance_metrics,
             commands::get_local_ip_address,
+            get_app_version,
+            get_git_commit,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
