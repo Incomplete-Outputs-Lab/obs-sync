@@ -25,7 +25,7 @@ fn get_git_commit() -> String {
 #[cfg(desktop)]
 async fn check_and_install_update(app: tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Checking for updates...");
-    
+
     match app.updater()?.check().await {
         Ok(Some(update)) => {
             tracing::info!(
@@ -33,9 +33,9 @@ async fn check_and_install_update(app: tauri::AppHandle) -> Result<(), Box<dyn s
                 update.version,
                 update.current_version
             );
-            
+
             let mut downloaded = 0u64;
-            
+
             update
                 .download_and_install(
                     |chunk_length, content_length| {
@@ -51,7 +51,7 @@ async fn check_and_install_update(app: tauri::AppHandle) -> Result<(), Box<dyn s
                     },
                 )
                 .await?;
-            
+
             tracing::info!("Update installed successfully. The app will restart.");
             app.restart();
         }
@@ -63,7 +63,7 @@ async fn check_and_install_update(app: tauri::AppHandle) -> Result<(), Box<dyn s
             return Err(e.into());
         }
     }
-    
+
     Ok(())
 }
 
@@ -106,7 +106,7 @@ pub fn run() {
                 app.handle()
                     .plugin(tauri_plugin_process::init())
                     .expect("Failed to initialize process plugin");
-                
+
                 // Check for updates in background
                 let handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
@@ -115,7 +115,7 @@ pub fn run() {
                     }
                 });
             }
-            
+
             let handle = app.handle().clone();
             let state: tauri::State<AppState> = app.state();
             let state_inner = state.inner().clone();
