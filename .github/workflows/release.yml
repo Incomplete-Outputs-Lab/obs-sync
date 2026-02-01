@@ -1,26 +1,28 @@
-name: Release
+name: 'Publish Release'
 
 on:
   push:
     tags:
-      - 'v*.*.*'
-
-permissions:
-  contents: write
+      - 'v*'
 
 jobs:
-  release:
-    if: startsWith(github.ref, 'refs/tags/v')
+  publish-tauri:
+    permissions:
+      contents: write
+    # Skip this job if the tag contains pre-release indicators
+    if: ${{ startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, 'alpha') && !contains(github.ref_name, 'beta') && !contains(github.ref_name, 'rc') }}
     strategy:
       fail-fast: false
       matrix:
         include:
+          - platform: 'macos-latest'
+            args: '--target aarch64-apple-darwin'
+          - platform: 'macos-latest'
+            args: '--target x86_64-apple-darwin'
           - platform: 'ubuntu-latest'
             args: ''
           - platform: 'windows-latest'
-            args: ''
-          - platform: 'macos-latest'
-            args: ''
+            args: '--target x86_64-pc-windows-msvc'
 
     runs-on: ${{ matrix.platform }}
 
@@ -32,8 +34,10 @@ jobs:
         with:
           bun-version: latest
 
-      - name: Install Rust toolchain
+      - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
       - name: Cache Rust build
         uses: swatinem/rust-cache@v2
@@ -69,20 +73,42 @@ jobs:
       - name: Install frontend dependencies
         run: bun install --frozen-lockfile
 
-      - name: Build frontend
-        run: bun run build
+      - name: Set build environment variables
+        shell: bash
+        run: |
+          echo "GIT_COMMIT_HASH=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+          echo "GIT_BRANCH=${GITHUB_REF_NAME}" >> $GITHUB_ENV
+          echo "BUILD_TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M:%S UTC")" >> $GITHUB_ENV
 
-      - name: Publish Tauri builds
+      - name: Build Tauri App
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          GIT_COMMIT_HASH: ${{ env.GIT_COMMIT_HASH }}
+          GIT_BRANCH: ${{ env.GIT_BRANCH }}
+          BUILD_TIMESTAMP: ${{ env.BUILD_TIMESTAMP }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: 'OBS Sync ${{ github.ref_name }}'
-          releaseBody: '🚀 Release version ${{ github.ref_name }}'
+          tagName: v__VERSION__
+          releaseName: 'OBS Sync v__VERSION__'
+          releaseBody: |
+            ## What's Changed
+            - Auto-generated release from GitHub Actions
+            - Built from commit: ${{ env.GIT_COMMIT_HASH }}
+            - Branch: ${{ env.GIT_BRANCH }}
+            - Build time: ${{ env.BUILD_TIMESTAMP }}
+
+            ## Download
+            Select the appropriate installer for your platform:
+            - **Windows**: `.msi` file
+            - **macOS**: `.dmg` file  
+            - **Linux**: `.AppImage` or `.deb` file
+
+            ## Auto-Update
+            This release supports automatic updates. The app will check for updates on startup and you can manually check via the system tray menu.
+
+            See the assets below to download and install this version.
           releaseDraft: false
-          prerelease: false
           includeUpdaterJson: true
           args: ${{ matrix.args }}
