@@ -15,6 +15,7 @@ import { SyncTargetSelector } from "./components/SyncTargetSelector";
 import { AlertPanel } from "./components/AlertPanel";
 import { OBSSourceList } from "./components/OBSSourceList";
 import { SplashScreen } from "./components/SplashScreen";
+import { VersionInfo } from "./components/VersionInfo";
 import { AppMode } from "./types/sync";
 
 function App() {
@@ -380,6 +381,7 @@ function App() {
       </main>
 
       <footer className="app-footer">
+        <VersionInfo />
         <p>© 2026 OBS Sync - イベント向けOBS同期システム</p>
       </footer>
     </div>
