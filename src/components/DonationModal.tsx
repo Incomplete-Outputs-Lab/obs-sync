@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { open } from "@tauri-apps/plugin-opener";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import "./DonationModal.css";
 
 interface DonationModalProps {
@@ -20,7 +20,7 @@ export function DonationModal({ isOpen, onClose }: DonationModalProps) {
   const handleDonate = async () => {
     try {
       setIsOpening(true);
-      await open("http://subs.twitch.tv/flowingspdg");
+      await openUrl("http://subs.twitch.tv/flowingspdg");
       // ブラウザを開いた後、少し待ってから閉じる
       setTimeout(() => {
         onClose();
