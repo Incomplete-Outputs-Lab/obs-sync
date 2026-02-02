@@ -16,10 +16,12 @@ import { AlertPanel } from "./components/AlertPanel";
 import { OBSSourceList } from "./components/OBSSourceList";
 import { SplashScreen } from "./components/SplashScreen";
 import { VersionInfo } from "./components/VersionInfo";
+import { DonationModal } from "./components/DonationModal";
 import { AppMode } from "./types/sync";
 
 function App() {
   const [showSplash, setShowSplash] = useState(true);
+  const [showDonationModal, setShowDonationModal] = useState(false);
   const [appMode, setAppMode] = useState<AppMode | null>(null);
   const [obsHost, setObsHost] = useState("localhost");
   const [obsPort, setObsPort] = useState(4455);
@@ -128,11 +130,38 @@ function App() {
     }
   };
 
+  const handleSplashComplete = () => {
+    setShowSplash(false);
+    // Show donation modal if it hasn't been shown before
+    if (settings && !settings.donationDialogShown) {
+      setShowDonationModal(true);
+    }
+  };
+
+  const handleCloseDonationModal = async () => {
+    setShowDonationModal(false);
+    // Mark donation dialog as shown
+    if (settings) {
+      try {
+        await saveSettings({
+          ...settings,
+          donationDialogShown: true,
+        });
+      } catch (error) {
+        console.error("Failed to save donation dialog status:", error);
+      }
+    }
+  };
+
   return (
     <div className="app">
       {showSplash && (
-        <SplashScreen onComplete={() => setShowSplash(false)} />
+        <SplashScreen onComplete={handleSplashComplete} />
       )}
+      <DonationModal 
+        isOpen={showDonationModal} 
+        onClose={handleCloseDonationModal}
+      />
       <ToastContainer 
         position="top-right" 
         autoClose={3000}
@@ -381,8 +410,17 @@ function App() {
       </main>
 
       <footer className="app-footer">
-        <VersionInfo />
-        <p>© 2026 OBS Sync - イベント向けOBS同期システム</p>
+        <div className="footer-content">
+          <VersionInfo />
+          <button 
+            onClick={() => setShowDonationModal(true)} 
+            className="btn-donation"
+            title="開発者をサポート"
+          >
+            💜 寄付する
+          </button>
+        </div>
+        <p className="footer-copyright">© 2026 OBS Sync - イベント向けOBS同期システム</p>
       </footer>
     </div>
   );

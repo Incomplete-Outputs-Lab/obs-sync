@@ -12,7 +12,7 @@ export function VersionInfo() {
 
   return (
     <span className="version-info">
-      v{appVersion} ({gitCommit})
+      v{appVersion} ({gitCommit}) | 未完成成果物研究所
     </span>
   );
 }
