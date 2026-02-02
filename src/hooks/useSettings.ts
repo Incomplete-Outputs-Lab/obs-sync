@@ -20,6 +20,7 @@ export interface AppSettings {
   obs: OBSSettings;
   master: MasterSettings;
   slave: SlaveSettings;
+  donationDialogShown?: boolean;
 }
 
 export const useSettings = () => {
@@ -48,6 +49,7 @@ export const useSettings = () => {
           defaultHost: "192.168.1.100",
           defaultPort: 8080,
         },
+        donationDialogShown: false,
       };
       setSettings(defaultSettings);
       return defaultSettings;

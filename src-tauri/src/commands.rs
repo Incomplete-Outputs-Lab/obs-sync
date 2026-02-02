@@ -33,6 +33,8 @@ pub struct AppSettings {
     pub obs: OBSSettings,
     pub master: MasterSettings,
     pub slave: SlaveSettings,
+    #[serde(default)]
+    pub donation_dialog_shown: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -69,6 +71,7 @@ impl Default for AppSettings {
                 default_host: "192.168.1.100".to_string(),
                 default_port: 8080,
             },
+            donation_dialog_shown: false,
         }
     }
 }
