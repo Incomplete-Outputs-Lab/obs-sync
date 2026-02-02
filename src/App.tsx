@@ -410,8 +410,17 @@ function App() {
       </main>
 
       <footer className="app-footer">
-        <VersionInfo />
-        <p>© 2026 OBS Sync - イベント向けOBS同期システム</p>
+        <div className="footer-content">
+          <VersionInfo />
+          <button 
+            onClick={() => setShowDonationModal(true)} 
+            className="btn-donation"
+            title="開発者をサポート"
+          >
+            💜 寄付する
+          </button>
+        </div>
+        <p className="footer-copyright">© 2026 OBS Sync - イベント向けOBS同期システム</p>
       </footer>
     </div>
   );
